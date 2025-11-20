@@ -358,6 +358,88 @@ def load_workflow(workflow_path):
         logger.error(f"加载工作流文件时发生错误: {workflow_path} - {str(e)}")
         raise
 
+def ensure_model_in_checkpoints(model_name):
+    """确保模型文件在 checkpoints 目录中，如果不在则创建符号链接"""
+    model_name = os.path.basename(model_name)  # 只取文件名
+    
+    # 可能的模型路径
+    possible_paths = [
+        "/ComfyUI/models/diffusion_models/" + model_name,
+        "/workspace/models/" + model_name,
+        "/ComfyUI/models/checkpoints/" + model_name,
+    ]
+    
+    # 目标路径
+    target_path = "/ComfyUI/models/checkpoints/" + model_name
+    target_dir = "/ComfyUI/models/checkpoints"
+    
+    # 如果目标文件已存在，检查是否是有效的符号链接或文件
+    if os.path.exists(target_path):
+        # 检查是否是符号链接
+        if os.path.islink(target_path):
+            link_target = os.readlink(target_path)
+            if os.path.exists(link_target):
+                logger.info(f"模型文件符号链接已存在: {target_path} -> {link_target}")
+                return True
+            else:
+                logger.warning(f"符号链接目标不存在，将重新创建: {link_target}")
+                os.remove(target_path)
+        elif os.path.isfile(target_path):
+            logger.info(f"模型文件已存在于 checkpoints 目录: {target_path}")
+            return True
+    
+    # 确保目标目录存在
+    os.makedirs(target_dir, exist_ok=True)
+    
+    # 查找模型文件
+    source_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            source_path = path
+            logger.info(f"找到模型文件: {source_path}")
+            break
+    
+    if source_path:
+        try:
+            # 创建符号链接
+            if os.path.exists(target_path):
+                os.remove(target_path)  # 如果已存在，先删除
+            os.symlink(source_path, target_path)
+            logger.info(f"已创建符号链接: {target_path} -> {source_path}")
+            
+            # 等待一小段时间，让文件系统同步
+            time.sleep(0.5)
+            
+            # 验证符号链接是否创建成功
+            if os.path.exists(target_path) and os.path.islink(target_path):
+                logger.info(f"符号链接验证成功: {target_path}")
+                return True
+            else:
+                logger.warning(f"符号链接创建后验证失败，尝试复制文件")
+                # 如果符号链接验证失败，尝试复制文件
+                import shutil
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+                shutil.copy2(source_path, target_path)
+                logger.info(f"已复制模型文件: {source_path} -> {target_path}")
+                return True
+        except Exception as e:
+            logger.warning(f"创建符号链接失败: {e}，尝试复制文件")
+            try:
+                # 如果符号链接失败，尝试复制文件
+                import shutil
+                if os.path.exists(target_path):
+                    os.remove(target_path)
+                shutil.copy2(source_path, target_path)
+                logger.info(f"已复制模型文件: {source_path} -> {target_path}")
+                return True
+            except Exception as e2:
+                logger.error(f"复制模型文件也失败: {e2}")
+                return False
+    else:
+        logger.warning(f"未找到模型文件: {model_name}，在以下路径中查找: {possible_paths}")
+        return False
+
 def handler(job):
     job_input = job.get("input", {})
 
@@ -401,6 +483,17 @@ def handler(job):
         logger.warning(f"LoRA 개수가 {len(lora_pairs)}개입니다. 최대 4개까지만 지원됩니다. 처음 4개만 사용합니다.")
         lora_pairs = lora_pairs[:4]
     
+    # 首先，确保 MEGA/AIO 模型文件在 checkpoints 目录中（如果存在）
+    # 这样 CheckpointLoaderSimple 就能找到模型
+    mega_model_name = "wan2.2-rapid-mega-aio-nsfw-v12.1.safetensors"
+    if os.path.exists(f"/ComfyUI/models/diffusion_models/{mega_model_name}"):
+        logger.info(f"检测到 MEGA/AIO 模型文件，确保其在 checkpoints 目录中")
+        if ensure_model_in_checkpoints(mega_model_name):
+            # 等待 ComfyUI 重新扫描模型目录（如果它支持动态扫描）
+            # 注意：ComfyUI 通常在启动时扫描，但我们可以等待一下
+            logger.info("等待 ComfyUI 识别新添加的模型文件...")
+            time.sleep(2)  # 等待 2 秒让 ComfyUI 有机会重新扫描
+    
     # 获取可用模型列表，用于检测 MEGA/AIO 模型
     available_models = get_available_models()
     
@@ -411,7 +504,11 @@ def handler(job):
             model_name_lower = model_name.lower()
             if "mega" in model_name_lower or "aio" in model_name_lower or "all-in-one" in model_name_lower or "allinone" in model_name_lower:
                 is_mega_model = True
+                mega_model_name = model_name
                 logger.info(f"检测到 MEGA/AIO 模型: {model_name}, 将使用 Rapid-AIO-Mega workflow")
+                
+                # 再次确保模型文件在 checkpoints 目录中（用于 CheckpointLoaderSimple）
+                ensure_model_in_checkpoints(model_name)
                 break
     
     # 워크플로우 파일 선택
