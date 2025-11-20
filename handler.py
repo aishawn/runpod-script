@@ -226,31 +226,39 @@ def get_available_models():
                 loader_info = object_info["WanVideoModelLoader"]
                 # 尝试不同的返回格式
                 if "model" in loader_info:
-                    models = loader_info["model"]
+                    wan_models = loader_info["model"]
                 elif "input" in loader_info and "required" in loader_info["input"]:
                     if "model" in loader_info["input"]["required"]:
-                        models = loader_info["input"]["required"]["model"]
+                        wan_models = loader_info["input"]["required"]["model"]
+                    else:
+                        wan_models = []
+                else:
+                    wan_models = []
                 
                 # 处理嵌套列表的情况
-                if models and isinstance(models, list) and len(models) > 0:
-                    if isinstance(models[0], list):
-                        models = models[0]
-                    models = [m for m in models if isinstance(m, str)]
+                if wan_models and isinstance(wan_models, list) and len(wan_models) > 0:
+                    if isinstance(wan_models[0], list):
+                        wan_models = wan_models[0]
+                    wan_models = [m for m in wan_models if isinstance(m, str)]
+                    models.extend(wan_models)
             
-            # 如果没有找到，尝试 CheckpointLoaderSimple（用于 Rapid-AIO-Mega.json）
-            if not models and "CheckpointLoaderSimple" in object_info:
+            # 同时检查 CheckpointLoaderSimple（用于 Rapid-AIO-Mega.json）
+            if "CheckpointLoaderSimple" in object_info:
                 loader_info = object_info["CheckpointLoaderSimple"]
-                if "ckpt_name" in loader_info:
-                    models = loader_info["ckpt_name"]
-                elif "input" in loader_info and "required" in loader_info["input"]:
+                checkpoint_models = []
+                if "input" in loader_info and "required" in loader_info["input"]:
                     if "ckpt_name" in loader_info["input"]["required"]:
-                        models = loader_info["input"]["required"]["ckpt_name"]
+                        checkpoint_models = loader_info["input"]["required"]["ckpt_name"]
                 
                 # 处理嵌套列表的情况
-                if models and isinstance(models, list) and len(models) > 0:
-                    if isinstance(models[0], list):
-                        models = models[0]
-                    models = [m for m in models if isinstance(m, str)]
+                if checkpoint_models and isinstance(checkpoint_models, list) and len(checkpoint_models) > 0:
+                    if isinstance(checkpoint_models[0], list):
+                        checkpoint_models = checkpoint_models[0]
+                    checkpoint_models = [m for m in checkpoint_models if isinstance(m, str)]
+                    models.extend(checkpoint_models)
+            
+            # 去重
+            models = list(set(models))
             
             if models:
                 logger.info(f"可用模型列表: {models}")
@@ -509,6 +517,7 @@ def handler(job):
             logger.info(f"节点16 (起始图像): {image_path}")
         
         # 节点37: LoadImage (结束图像，可选)
+        # 如果没有结束图像，需要删除节点37或断开其连接
         if "37" in prompt:
             if end_image_path_local:
                 if "widgets_values" in prompt["37"]:
@@ -517,15 +526,41 @@ def handler(job):
                     prompt["37"]["inputs"] = {}
                 prompt["37"]["inputs"]["image"] = end_image_path_local
                 logger.info(f"节点37 (结束图像): {end_image_path_local}")
+            else:
+                # 没有结束图像时，删除节点37以避免验证错误
+                # 同时需要断开其他节点对节点37的引用
+                del prompt["37"]
+                logger.info("节点37 (结束图像): 已删除（未提供结束图像）")
+                
+                # 检查节点34是否引用了节点37，如果有则断开连接
+                if "34" in prompt and "inputs" in prompt["34"]:
+                    # 如果节点34的 end_image 输入引用了节点37，需要移除
+                    if "end_image" in prompt["34"]["inputs"]:
+                        end_image_ref = prompt["34"]["inputs"]["end_image"]
+                        if isinstance(end_image_ref, list) and len(end_image_ref) > 0 and str(end_image_ref[0]) == "37":
+                            # 断开连接，设为 None 或移除
+                            del prompt["34"]["inputs"]["end_image"]
+                            logger.info("节点34: 已断开与节点37的连接（未提供结束图像）")
         
         # 节点26: CheckpointLoaderSimple - widgets_values[0] 是模型名称
         if "26" in prompt:
             if "widgets_values" in prompt["26"] and prompt["26"]["widgets_values"]:
                 model_name = prompt["26"]["widgets_values"][0]
-                if "inputs" not in prompt["26"]:
-                    prompt["26"]["inputs"] = {}
-                prompt["26"]["inputs"]["ckpt_name"] = model_name
-                logger.info(f"节点26 (模型): {model_name}")
+            else:
+                # 如果没有 widgets_values，尝试从可用模型列表中获取
+                if available_models:
+                    model_name = available_models[0]
+                else:
+                    model_name = "wan2.2-rapid-mega-aio-nsfw-v12.1.safetensors"  # 默认值
+            
+            if "inputs" not in prompt["26"]:
+                prompt["26"]["inputs"] = {}
+            prompt["26"]["inputs"]["ckpt_name"] = model_name
+            logger.info(f"节点26 (模型): {model_name}")
+            
+            # 验证模型是否在可用列表中
+            if available_models and model_name not in available_models:
+                logger.warning(f"警告: 模型 '{model_name}' 不在可用模型列表中 {available_models}，但将继续使用")
         
         # 节点48: PrimitiveInt - widgets_values[0] 是帧数
         if "48" in prompt:
