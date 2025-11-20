@@ -246,9 +246,26 @@ def get_available_models():
             if "CheckpointLoaderSimple" in object_info:
                 loader_info = object_info["CheckpointLoaderSimple"]
                 checkpoint_models = []
-                if "input" in loader_info and "required" in loader_info["input"]:
-                    if "ckpt_name" in loader_info["input"]["required"]:
-                        checkpoint_models = loader_info["input"]["required"]["ckpt_name"]
+                
+                # 调试：打印 CheckpointLoaderSimple 的结构
+                logger.debug(f"CheckpointLoaderSimple loader_info keys: {list(loader_info.keys())}")
+                
+                # 尝试多种方式获取模型列表
+                if "input" in loader_info:
+                    if "required" in loader_info["input"]:
+                        if "ckpt_name" in loader_info["input"]["required"]:
+                            checkpoint_models = loader_info["input"]["required"]["ckpt_name"]
+                            logger.debug(f"CheckpointLoaderSimple ckpt_name from required: {checkpoint_models}")
+                    # 也检查 optional
+                    if "optional" in loader_info["input"]:
+                        if "ckpt_name" in loader_info["input"]["optional"]:
+                            optional_models = loader_info["input"]["optional"]["ckpt_name"]
+                            logger.debug(f"CheckpointLoaderSimple ckpt_name from optional: {optional_models}")
+                
+                # 直接检查是否有 ckpt_name 字段
+                if "ckpt_name" in loader_info:
+                    checkpoint_models = loader_info["ckpt_name"]
+                    logger.debug(f"CheckpointLoaderSimple ckpt_name direct: {checkpoint_models}")
                 
                 # 处理嵌套列表的情况
                 if checkpoint_models and isinstance(checkpoint_models, list) and len(checkpoint_models) > 0:
@@ -256,6 +273,9 @@ def get_available_models():
                         checkpoint_models = checkpoint_models[0]
                     checkpoint_models = [m for m in checkpoint_models if isinstance(m, str)]
                     models.extend(checkpoint_models)
+                    logger.info(f"CheckpointLoaderSimple 找到 {len(checkpoint_models)} 个模型: {checkpoint_models}")
+                else:
+                    logger.warning(f"CheckpointLoaderSimple 模型列表为空，可能模型不在标准路径中")
             
             # 去重
             models = list(set(models))
@@ -555,12 +575,53 @@ def handler(job):
             
             if "inputs" not in prompt["26"]:
                 prompt["26"]["inputs"] = {}
-            prompt["26"]["inputs"]["ckpt_name"] = model_name
-            logger.info(f"节点26 (模型): {model_name}")
             
-            # 验证模型是否在可用列表中
-            if available_models and model_name not in available_models:
-                logger.warning(f"警告: 模型 '{model_name}' 不在可用模型列表中 {available_models}，但将继续使用")
+            # 获取 CheckpointLoaderSimple 的实际可用模型列表
+            checkpoint_models = []
+            try:
+                url = f"http://{server_address}:8188/object_info"
+                with urllib.request.urlopen(url, timeout=5) as response:
+                    object_info = json.loads(response.read())
+                    if "CheckpointLoaderSimple" in object_info:
+                        loader_info = object_info["CheckpointLoaderSimple"]
+                        if "input" in loader_info and "required" in loader_info["input"]:
+                            if "ckpt_name" in loader_info["input"]["required"]:
+                                checkpoint_models = loader_info["input"]["required"]["ckpt_name"]
+                                if isinstance(checkpoint_models, list) and len(checkpoint_models) > 0:
+                                    if isinstance(checkpoint_models[0], list):
+                                        checkpoint_models = checkpoint_models[0]
+                                    checkpoint_models = [m for m in checkpoint_models if isinstance(m, str)]
+                        logger.info(f"CheckpointLoaderSimple 可用模型列表: {checkpoint_models}")
+            except Exception as e:
+                logger.warning(f"获取 CheckpointLoaderSimple 模型列表失败: {e}")
+            
+            # 决定使用哪个模型名称
+            if checkpoint_models:
+                # 如果 CheckpointLoaderSimple 有模型列表
+                if model_name in checkpoint_models:
+                    # 模型在列表中，使用它
+                    final_model_name = model_name
+                    logger.info(f"使用模型: {final_model_name} (在 CheckpointLoaderSimple 列表中)")
+                else:
+                    # 模型不在列表中，使用列表中的第一个
+                    final_model_name = checkpoint_models[0]
+                    logger.warning(f"模型 '{model_name}' 不在 CheckpointLoaderSimple 列表中，使用列表中的第一个: {final_model_name}")
+            else:
+                # CheckpointLoaderSimple 的模型列表为空
+                # 如果模型在 WanVideoModelLoader 中，说明模型可能在 /workspace/models/ 路径
+                # CheckpointLoaderSimple 可能无法识别，但我们仍然尝试使用模型名称
+                if model_name in available_models:
+                    final_model_name = model_name
+                    logger.warning(f"CheckpointLoaderSimple 模型列表为空，但模型 '{model_name}' 在 WanVideoModelLoader 中")
+                    logger.warning(f"尝试使用模型名称 '{final_model_name}'，如果验证失败，可能需要检查模型路径配置")
+                else:
+                    # 模型也不在 WanVideoModelLoader 中，使用默认值
+                    final_model_name = model_name
+                    logger.warning(f"CheckpointLoaderSimple 和 WanVideoModelLoader 都无法找到模型，使用默认名称: {final_model_name}")
+            
+            prompt["26"]["inputs"]["ckpt_name"] = final_model_name
+            
+            logger.info(f"节点26 (模型): {prompt['26']['inputs']['ckpt_name']}")
         
         # 节点48: PrimitiveInt - widgets_values[0] 是帧数
         if "48" in prompt:
