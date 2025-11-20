@@ -496,51 +496,122 @@ def handler(job):
     
     if is_mega_model:
         # Rapid-AIO-Mega.json workflow 节点配置
+        # 首先设置 widgets_values，然后统一转换为 inputs
+        
         # 节点16: LoadImage (起始图像)
-        if "16" in prompt and "widgets_values" in prompt["16"]:
-            prompt["16"]["widgets_values"][0] = image_path
+        if "16" in prompt:
+            if "widgets_values" in prompt["16"]:
+                prompt["16"]["widgets_values"][0] = image_path
+            # 确保 inputs 存在并设置 image
+            if "inputs" not in prompt["16"]:
+                prompt["16"]["inputs"] = {}
+            prompt["16"]["inputs"]["image"] = image_path
             logger.info(f"节点16 (起始图像): {image_path}")
         
         # 节点37: LoadImage (结束图像，可选)
-        if end_image_path_local and "37" in prompt and "widgets_values" in prompt["37"]:
-            prompt["37"]["widgets_values"][0] = end_image_path_local
-            logger.info(f"节点37 (结束图像): {end_image_path_local}")
+        if "37" in prompt:
+            if end_image_path_local:
+                if "widgets_values" in prompt["37"]:
+                    prompt["37"]["widgets_values"][0] = end_image_path_local
+                if "inputs" not in prompt["37"]:
+                    prompt["37"]["inputs"] = {}
+                prompt["37"]["inputs"]["image"] = end_image_path_local
+                logger.info(f"节点37 (结束图像): {end_image_path_local}")
         
-        # 节点34: WanVideoVACEStartToEndFrame - widgets_values[0] 是 num_frames
-        if "34" in prompt and "widgets_values" in prompt["34"]:
-            prompt["34"]["widgets_values"][0] = length
-            logger.info(f"节点34 (VACE num_frames): {length}")
+        # 节点26: CheckpointLoaderSimple - widgets_values[0] 是模型名称
+        if "26" in prompt:
+            if "widgets_values" in prompt["26"] and prompt["26"]["widgets_values"]:
+                model_name = prompt["26"]["widgets_values"][0]
+                if "inputs" not in prompt["26"]:
+                    prompt["26"]["inputs"] = {}
+                prompt["26"]["inputs"]["ckpt_name"] = model_name
+                logger.info(f"节点26 (模型): {model_name}")
         
         # 节点48: PrimitiveInt - widgets_values[0] 是帧数
-        if "48" in prompt and "widgets_values" in prompt["48"]:
-            prompt["48"]["widgets_values"][0] = length
+        if "48" in prompt:
+            if "widgets_values" in prompt["48"]:
+                prompt["48"]["widgets_values"][0] = length
+            if "inputs" not in prompt["48"]:
+                prompt["48"]["inputs"] = {}
+            prompt["48"]["inputs"]["value"] = length
             logger.info(f"节点48 (帧数): {length}")
         
-        # 节点28: WanVaceToVideo - widgets_values[3] 是 strength (1=I2V), widgets_values[0] 和 widgets_values[1] 是宽高
-        if "28" in prompt and "widgets_values" in prompt["28"]:
-            prompt["28"]["widgets_values"][0] = adjusted_width
-            prompt["28"]["widgets_values"][1] = adjusted_height
-            prompt["28"]["widgets_values"][2] = length  # length
-            prompt["28"]["widgets_values"][3] = 1  # strength = 1 for I2V
-            prompt["28"]["widgets_values"][4] = 1  # 保持原值
-            logger.info(f"节点28 (WanVaceToVideo): width={adjusted_width}, height={adjusted_height}, length={length}, strength=1 (I2V)")
+        # 节点34: WanVideoVACEStartToEndFrame - widgets_values[0] 是 num_frames, widgets_values[1] 是 empty_frame_level
+        if "34" in prompt:
+            if "widgets_values" in prompt["34"]:
+                prompt["34"]["widgets_values"][0] = length
+                # widgets_values[1] 是 empty_frame_level (默认 0.5)
+                if len(prompt["34"]["widgets_values"]) < 2:
+                    prompt["34"]["widgets_values"].append(0.5)
+            if "inputs" not in prompt["34"]:
+                prompt["34"]["inputs"] = {}
+            prompt["34"]["inputs"]["num_frames"] = length
+            prompt["34"]["inputs"]["empty_frame_level"] = prompt["34"]["widgets_values"][1] if len(prompt["34"]["widgets_values"]) > 1 else 0.5
+            logger.info(f"节点34 (VACE num_frames): {length}, empty_frame_level: {prompt['34']['inputs']['empty_frame_level']}")
+        
+        # 节点28: WanVaceToVideo - widgets_values[0]=width, [1]=height, [2]=length, [3]=strength, [4]=batch_size
+        if "28" in prompt:
+            if "widgets_values" in prompt["28"]:
+                prompt["28"]["widgets_values"][0] = adjusted_width
+                prompt["28"]["widgets_values"][1] = adjusted_height
+                prompt["28"]["widgets_values"][2] = length
+                prompt["28"]["widgets_values"][3] = 1  # strength = 1 for I2V
+                if len(prompt["28"]["widgets_values"]) < 5:
+                    prompt["28"]["widgets_values"].append(1)  # batch_size
+            if "inputs" not in prompt["28"]:
+                prompt["28"]["inputs"] = {}
+            prompt["28"]["inputs"]["width"] = adjusted_width
+            prompt["28"]["inputs"]["height"] = adjusted_height
+            prompt["28"]["inputs"]["batch_size"] = prompt["28"]["widgets_values"][4] if len(prompt["28"]["widgets_values"]) > 4 else 1
+            prompt["28"]["inputs"]["strength"] = 1  # I2V mode
+            logger.info(f"节点28 (WanVaceToVideo): width={adjusted_width}, height={adjusted_height}, batch_size={prompt['28']['inputs']['batch_size']}, strength=1 (I2V)")
         
         # 节点9: CLIPTextEncode (正面提示词)
-        if "9" in prompt and "widgets_values" in prompt["9"]:
-            prompt["9"]["widgets_values"][0] = positive_prompt
+        if "9" in prompt:
+            if "widgets_values" in prompt["9"]:
+                prompt["9"]["widgets_values"][0] = positive_prompt
+            if "inputs" not in prompt["9"]:
+                prompt["9"]["inputs"] = {}
+            prompt["9"]["inputs"]["text"] = positive_prompt
             logger.info(f"节点9 (正面提示词): {positive_prompt}")
         
         # 节点10: CLIPTextEncode (负面提示词)
-        if "10" in prompt and "widgets_values" in prompt["10"]:
-            prompt["10"]["widgets_values"][0] = negative_prompt
+        if "10" in prompt:
+            if "widgets_values" in prompt["10"]:
+                prompt["10"]["widgets_values"][0] = negative_prompt
+            if "inputs" not in prompt["10"]:
+                prompt["10"]["inputs"] = {}
+            prompt["10"]["inputs"]["text"] = negative_prompt
             logger.info(f"节点10 (负面提示词): {negative_prompt}")
         
-        # 节点8: KSampler - widgets_values[0] 是 seed, widgets_values[2] 是 steps, widgets_values[3] 是 cfg
-        if "8" in prompt and "widgets_values" in prompt["8"]:
-            prompt["8"]["widgets_values"][0] = seed
-            prompt["8"]["widgets_values"][2] = steps
-            prompt["8"]["widgets_values"][3] = cfg
-            logger.info(f"节点8 (KSampler): seed={seed}, steps={steps}, cfg={cfg}")
+        # 节点32: ModelSamplingSD3 - widgets_values[0] 是 shift
+        if "32" in prompt:
+            if "widgets_values" in prompt["32"]:
+                shift_value = prompt["32"]["widgets_values"][0]
+            else:
+                shift_value = 8  # 默认值
+            if "inputs" not in prompt["32"]:
+                prompt["32"]["inputs"] = {}
+            prompt["32"]["inputs"]["shift"] = shift_value
+            logger.info(f"节点32 (ModelSamplingSD3): shift={shift_value}")
+        
+        # 节点8: KSampler - widgets_values[0]=seed, [1]=control_after_generate, [2]=steps, [3]=cfg, [4]=sampler_name, [5]=scheduler, [6]=denoise
+        if "8" in prompt:
+            if "widgets_values" in prompt["8"]:
+                widgets = prompt["8"]["widgets_values"]
+                prompt["8"]["widgets_values"][0] = seed
+                prompt["8"]["widgets_values"][2] = steps
+                prompt["8"]["widgets_values"][3] = cfg
+            if "inputs" not in prompt["8"]:
+                prompt["8"]["inputs"] = {}
+            widgets = prompt["8"].get("widgets_values", [seed, "fixed", steps, cfg, "ipndm", "beta", 1])
+            prompt["8"]["inputs"]["seed"] = seed
+            prompt["8"]["inputs"]["steps"] = steps
+            prompt["8"]["inputs"]["cfg"] = cfg
+            prompt["8"]["inputs"]["sampler_name"] = widgets[4] if len(widgets) > 4 else "ipndm"
+            prompt["8"]["inputs"]["scheduler"] = widgets[5] if len(widgets) > 5 else "beta"
+            prompt["8"]["inputs"]["denoise"] = widgets[6] if len(widgets) > 6 else 1.0
+            logger.info(f"节点8 (KSampler): seed={seed}, steps={steps}, cfg={cfg}, sampler={prompt['8']['inputs']['sampler_name']}, scheduler={prompt['8']['inputs']['scheduler']}, denoise={prompt['8']['inputs']['denoise']}")
         
         # 节点39: VHS_VideoCombine - 需要将 widgets_values 转换为 inputs
         if "39" in prompt:
