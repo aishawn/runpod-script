@@ -403,7 +403,17 @@ def handler(job):
         prompt = {}
         for node in workflow_data["nodes"]:
             node_id = str(node["id"])
-            prompt[node_id] = node
+            # 创建符合 ComfyUI API 格式的节点对象
+            converted_node = {}
+            # 复制所有字段
+            for key, value in node.items():
+                if key != "id":  # 排除 id 字段
+                    converted_node[key] = value
+            # 将 type 字段转换为 class_type（ComfyUI API 需要）
+            if "type" in converted_node:
+                converted_node["class_type"] = converted_node["type"]
+                # 保留 type 字段（某些情况下可能需要）
+            prompt[node_id] = converted_node
         logger.info("已转换 nodes 数组格式为节点 ID key 格式")
     else:
         # new_Wan22_api.json 使用节点 ID key 格式
