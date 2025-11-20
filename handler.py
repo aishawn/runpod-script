@@ -245,8 +245,41 @@ def update_model_in_prompt(prompt, node_id, available_models):
     return False
 
 def load_workflow(workflow_path):
-    with open(workflow_path, 'r') as file:
-        return json.load(file)
+    """加载并验证工作流JSON文件"""
+    if not os.path.exists(workflow_path):
+        raise FileNotFoundError(f"工作流文件不存在: {workflow_path}")
+    
+    file_size = os.path.getsize(workflow_path)
+    logger.info(f"加载工作流文件: {workflow_path} (大小: {file_size} 字节)")
+    
+    if file_size == 0:
+        raise ValueError(f"工作流文件为空: {workflow_path}")
+    
+    try:
+        with open(workflow_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+            # 检查文件内容是否看起来像JSON（以{或[开头）
+            content_stripped = content.strip()
+            if not content_stripped.startswith(('{', '[')):
+                # 显示前500个字符以便调试
+                preview = content[:500] if len(content) > 500 else content
+                logger.error(f"文件内容不是有效的JSON格式。前500字符: {preview}")
+                raise ValueError(f"工作流文件不是有效的JSON格式: {workflow_path}")
+            
+            return json.loads(content)
+    except json.JSONDecodeError as e:
+        # 显示错误位置附近的内容
+        with open(workflow_path, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+            error_line = e.lineno - 1 if e.lineno > 0 else 0
+            start_line = max(0, error_line - 2)
+            end_line = min(len(lines), error_line + 3)
+            context = ''.join(lines[start_line:end_line])
+            logger.error(f"JSON解析错误 (行 {e.lineno}, 列 {e.colno}):\n{context}")
+        raise ValueError(f"工作流文件JSON格式错误: {workflow_path} - {str(e)}")
+    except Exception as e:
+        logger.error(f"加载工作流文件时发生错误: {workflow_path} - {str(e)}")
+        raise
 
 def handler(job):
     job_input = job.get("input", {})
