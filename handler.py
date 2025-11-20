@@ -366,10 +366,14 @@ def handler(job):
 
     prompt["244"]["inputs"]["image"] = image_path
     prompt["541"]["inputs"]["num_frames"] = length
-    # 对于 MEGA 模型，需要设置 fun_or_fl2v_model 为 true 以支持 I2V 模式
-    if is_mega_model and "541" in prompt and "inputs" in prompt["541"]:
+    # 当有输入图像时，必须设置 fun_or_fl2v_model 为 true 以支持 I2V 模式
+    # 这对于 MEGA/AIO 模型是必需的，对于其他模型也可能需要
+    if image_path and "541" in prompt and "inputs" in prompt["541"]:
         prompt["541"]["inputs"]["fun_or_fl2v_model"] = True
-        logger.info("已设置 fun_or_fl2v_model = True 以支持 MEGA 模型的 I2V 模式")
+        if is_mega_model:
+            logger.info("已设置 fun_or_fl2v_model = True 以支持 MEGA 模型的 I2V 模式")
+        else:
+            logger.info("已设置 fun_or_fl2v_model = True 以支持 I2V 模式（检测到输入图像）")
     prompt["135"]["inputs"]["positive_prompt"] = job_input.get("prompt", "running man, grab the gun")
     prompt["220"]["inputs"]["seed"] = job_input.get("seed", 42)
     prompt["540"]["inputs"]["seed"] = job_input.get("seed", 42)
