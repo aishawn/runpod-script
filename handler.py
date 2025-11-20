@@ -1000,7 +1000,6 @@ def handler(job):
     # 웹소켓 연결 시도 (최대 3분)
     max_attempts = int(180/5)  # 3분 (1초에 한 번씩 시도)
     for attempt in range(max_attempts):
-        import time
         try:
             ws.connect(ws_url)
             logger.info(f"웹소켓 연결 성공 (시도 {attempt+1})")
