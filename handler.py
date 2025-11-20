@@ -401,6 +401,20 @@ def handler(job):
     if "nodes" in workflow_data:
         # Rapid-AIO-Mega.json 使用 nodes 数组格式，需要转换
         prompt = {}
+        # 首先建立 link_id 到 [node_id, output_index] 的映射
+        links_map = {}
+        if "links" in workflow_data:
+            for link in workflow_data["links"]:
+                # link 格式: [link_id, source_node_id, source_output_index, target_node_id, target_input_index, type]
+                if len(link) >= 6:
+                    link_id = link[0]
+                    source_node_id = str(link[1])
+                    source_output_index = link[2]
+                    target_node_id = str(link[3])
+                    target_input_index = link[4]
+                    # 存储映射：link_id -> [source_node_id, source_output_index]
+                    links_map[link_id] = [source_node_id, source_output_index]
+        
         for node in workflow_data["nodes"]:
             node_id = str(node["id"])
             # 创建符合 ComfyUI API 格式的节点对象
@@ -408,7 +422,27 @@ def handler(job):
             # 复制所有字段
             for key, value in node.items():
                 if key != "id":  # 排除 id 字段
-                    converted_node[key] = value
+                    if key == "inputs":
+                        # 转换 inputs 数组为 inputs 对象
+                        converted_inputs = {}
+                        if isinstance(value, list):
+                            for input_item in value:
+                                if isinstance(input_item, dict) and "name" in input_item:
+                                    input_name = input_item["name"]
+                                    if "link" in input_item and input_item["link"] is not None:
+                                        # 如果有 link，转换为 [node_id, output_index] 格式
+                                        link_id = input_item["link"]
+                                        if link_id in links_map:
+                                            converted_inputs[input_name] = links_map[link_id]
+                                        else:
+                                            # 如果找不到 link，保持原值或设为 None
+                                            converted_inputs[input_name] = None
+                                    else:
+                                        # 如果没有 link，可能是可选输入，不设置
+                                        pass
+                        converted_node["inputs"] = converted_inputs
+                    else:
+                        converted_node[key] = value
             # 将 type 字段转换为 class_type（ComfyUI API 需要）
             if "type" in converted_node:
                 converted_node["class_type"] = converted_node["type"]
@@ -507,6 +541,41 @@ def handler(job):
             prompt["8"]["widgets_values"][2] = steps
             prompt["8"]["widgets_values"][3] = cfg
             logger.info(f"节点8 (KSampler): seed={seed}, steps={steps}, cfg={cfg}")
+        
+        # 节点39: VHS_VideoCombine - 需要将 widgets_values 转换为 inputs
+        if "39" in prompt:
+            # 确保 inputs 存在
+            if "inputs" not in prompt["39"]:
+                prompt["39"]["inputs"] = {}
+            
+            # 如果存在 widgets_values，将其转换为 inputs
+            if "widgets_values" in prompt["39"]:
+                widgets = prompt["39"]["widgets_values"]
+                # VHS_VideoCombine 需要的参数
+                if isinstance(widgets, dict):
+                    # 将 widgets_values 字典中的参数复制到 inputs
+                    for key, value in widgets.items():
+                        if key not in ["videopreview"]:  # 排除不需要的参数
+                            prompt["39"]["inputs"][key] = value
+                    logger.info(f"节点39 (VHS_VideoCombine): 已从 widgets_values 转换参数到 inputs")
+                else:
+                    # 如果 widgets_values 是数组，使用默认值
+                    prompt["39"]["inputs"]["frame_rate"] = 16
+                    prompt["39"]["inputs"]["loop_count"] = 0
+                    prompt["39"]["inputs"]["filename_prefix"] = "rapid-mega-out/vid"
+                    prompt["39"]["inputs"]["format"] = "video/h264-mp4"
+                    prompt["39"]["inputs"]["save_output"] = True
+                    prompt["39"]["inputs"]["pingpong"] = False
+                    logger.info(f"节点39 (VHS_VideoCombine): 使用默认参数")
+            else:
+                # 如果没有 widgets_values，使用默认值
+                prompt["39"]["inputs"]["frame_rate"] = 16
+                prompt["39"]["inputs"]["loop_count"] = 0
+                prompt["39"]["inputs"]["filename_prefix"] = "rapid-mega-out/vid"
+                prompt["39"]["inputs"]["format"] = "video/h264-mp4"
+                prompt["39"]["inputs"]["save_output"] = True
+                prompt["39"]["inputs"]["pingpong"] = False
+                logger.info(f"节点39 (VHS_VideoCombine): 使用默认参数")
     else:
         # 标准 workflow (new_Wan22_api.json) 节点配置
         prompt["244"]["inputs"]["image"] = image_path
@@ -608,6 +677,13 @@ def handler(job):
         if "8" in prompt and "widgets_values" in prompt["8"]:
             widgets = prompt["8"]["widgets_values"]
             logger.info(f"✓ 节点8 (KSampler): seed={widgets[0]}, steps={widgets[2]}, cfg={widgets[3]}")
+        if "39" in prompt:
+            if "inputs" in prompt["39"]:
+                inputs_39 = prompt["39"]["inputs"]
+                images_input = inputs_39.get("images")
+                logger.info(f"✓ 节点39 (VHS_VideoCombine): images={images_input}, frame_rate={inputs_39.get('frame_rate')}, format={inputs_39.get('format')}")
+            else:
+                logger.warning("✗ 节点39 缺少 inputs")
     else:
         # 标准 workflow 验证
         if "244" in prompt:
