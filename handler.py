@@ -94,10 +94,14 @@ def queue_prompt(prompt):
     url = f"http://{server_address}:8188/prompt"
     logger.info(f"Queueing prompt to: {url}")
     
-    # 调试：检查关键节点的配置
+    # 调试：检查关键节点的配置（发送前最后验证）
+    logger.info("发送prompt前的最后验证:")
     if "541" in prompt and "inputs" in prompt["541"]:
         fun_or_fl2v = prompt["541"]["inputs"].get("fun_or_fl2v_model")
-        logger.info(f"发送前验证: 节点541的fun_or_fl2v_model = {fun_or_fl2v}")
+        logger.info(f"  节点541的fun_or_fl2v_model = {fun_or_fl2v} (类型: {type(fun_or_fl2v).__name__})")
+    if "244" in prompt and "inputs" in prompt["244"]:
+        image_path_check = prompt["244"]["inputs"].get("image")
+        logger.info(f"  节点244的image = {image_path_check}")
     
     p = {"prompt": prompt, "client_id": client_id}
     data = json.dumps(p).encode('utf-8')
@@ -458,16 +462,39 @@ def handler(job):
                     prompt[low_lora_node_id]["inputs"][f"strength_{i}"] = lora_low_weight
                     logger.info(f"LoRA {i+1} LOW applied to node 553: {lora_low} with weight {lora_low_weight}")
 
-    # 验证关键参数设置
-    if image_path and "541" in prompt:
-        fun_or_fl2v_value = prompt["541"]["inputs"].get("fun_or_fl2v_model")
-        logger.info(f"验证: 节点541的fun_or_fl2v_model = {fun_or_fl2v_value} (类型: {type(fun_or_fl2v_value).__name__})")
-        if fun_or_fl2v_value != True:
-            logger.warning(f"警告: fun_or_fl2v_model 不是 True，实际值: {fun_or_fl2v_value}")
-        # 确保图像路径正确设置
-        if "244" in prompt:
+    # 验证关键参数设置 - 无条件输出验证信息
+    logger.info("=" * 60)
+    logger.info("验证关键节点配置:")
+    
+    # 验证节点244（图像输入）
+    if "244" in prompt:
+        if "inputs" in prompt["244"]:
             image_in_244 = prompt["244"]["inputs"].get("image")
-            logger.info(f"验证: 节点244的图像路径 = {image_in_244}")
+            logger.info(f"✓ 节点244 (LoadImage): image = {image_in_244}")
+        else:
+            logger.warning("✗ 节点244 缺少 inputs")
+    else:
+        logger.warning("✗ 节点244 不存在")
+    
+    # 验证节点541（I2V Encode）
+    if "541" in prompt:
+        if "inputs" in prompt["541"]:
+            fun_or_fl2v_value = prompt["541"]["inputs"].get("fun_or_fl2v_model")
+            logger.info(f"✓ 节点541 (WanVideoImageToVideoEncode): fun_or_fl2v_model = {fun_or_fl2v_value} (类型: {type(fun_or_fl2v_value).__name__})")
+            if fun_or_fl2v_value != True:
+                logger.warning(f"⚠ 警告: fun_or_fl2v_model 不是 True，实际值: {fun_or_fl2v_value}")
+            
+            # 检查其他关键参数
+            num_frames = prompt["541"]["inputs"].get("num_frames")
+            logger.info(f"  - num_frames = {num_frames}")
+            start_image = prompt["541"]["inputs"].get("start_image")
+            logger.info(f"  - start_image = {start_image}")
+        else:
+            logger.warning("✗ 节点541 缺少 inputs")
+    else:
+        logger.warning("✗ 节点541 不存在")
+    
+    logger.info("=" * 60)
     
     ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
     logger.info(f"Connecting to WebSocket: {ws_url}")
