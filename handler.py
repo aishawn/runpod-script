@@ -93,6 +93,12 @@ def save_base64_to_file(base64_data, temp_dir, output_filename):
 def queue_prompt(prompt):
     url = f"http://{server_address}:8188/prompt"
     logger.info(f"Queueing prompt to: {url}")
+    
+    # 调试：检查关键节点的配置
+    if "541" in prompt and "inputs" in prompt["541"]:
+        fun_or_fl2v = prompt["541"]["inputs"].get("fun_or_fl2v_model")
+        logger.info(f"发送前验证: 节点541的fun_or_fl2v_model = {fun_or_fl2v}")
+    
     p = {"prompt": prompt, "client_id": client_id}
     data = json.dumps(p).encode('utf-8')
     req = urllib.request.Request(url, data=data)
@@ -369,11 +375,13 @@ def handler(job):
     # 当有输入图像时，必须设置 fun_or_fl2v_model 为 true 以支持 I2V 模式
     # 这对于 MEGA/AIO 模型是必需的，对于其他模型也可能需要
     if image_path and "541" in prompt and "inputs" in prompt["541"]:
+        # 强制设置为布尔值 True，确保JSON序列化正确
         prompt["541"]["inputs"]["fun_or_fl2v_model"] = True
+        # 验证设置是否成功
+        actual_value = prompt["541"]["inputs"].get("fun_or_fl2v_model")
+        logger.info(f"已设置 fun_or_fl2v_model = {actual_value} (类型: {type(actual_value).__name__}) 以支持 I2V 模式")
         if is_mega_model:
-            logger.info("已设置 fun_or_fl2v_model = True 以支持 MEGA 模型的 I2V 模式")
-        else:
-            logger.info("已设置 fun_or_fl2v_model = True 以支持 I2V 模式（检测到输入图像）")
+            logger.info("检测到 MEGA/AIO 模型，已启用 I2V 模式")
     prompt["135"]["inputs"]["positive_prompt"] = job_input.get("prompt", "running man, grab the gun")
     prompt["220"]["inputs"]["seed"] = job_input.get("seed", 42)
     prompt["540"]["inputs"]["seed"] = job_input.get("seed", 42)
@@ -450,6 +458,17 @@ def handler(job):
                     prompt[low_lora_node_id]["inputs"][f"strength_{i}"] = lora_low_weight
                     logger.info(f"LoRA {i+1} LOW applied to node 553: {lora_low} with weight {lora_low_weight}")
 
+    # 验证关键参数设置
+    if image_path and "541" in prompt:
+        fun_or_fl2v_value = prompt["541"]["inputs"].get("fun_or_fl2v_model")
+        logger.info(f"验证: 节点541的fun_or_fl2v_model = {fun_or_fl2v_value} (类型: {type(fun_or_fl2v_value).__name__})")
+        if fun_or_fl2v_value != True:
+            logger.warning(f"警告: fun_or_fl2v_model 不是 True，实际值: {fun_or_fl2v_value}")
+        # 确保图像路径正确设置
+        if "244" in prompt:
+            image_in_244 = prompt["244"]["inputs"].get("image")
+            logger.info(f"验证: 节点244的图像路径 = {image_in_244}")
+    
     ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
     logger.info(f"Connecting to WebSocket: {ws_url}")
     
