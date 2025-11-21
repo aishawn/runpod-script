@@ -602,7 +602,11 @@ def handler(job):
                     logger.info(f"节点 26 模型更新: {current_model} -> {new_model}")
     
     length = job_input.get("length", 81)
-    # All-in-one 模型推荐使用 4 steps，但保持向后兼容允许自定义
+    # MEGA v12 推荐配置（根据 Hugging Face: https://huggingface.co/Phr00t/WAN2.2-14B-Rapid-AllInOne）
+    # - Steps: 4 (推荐值，保持向后兼容允许自定义)
+    # - CFG: 1.0 (推荐值)
+    # - Sampler: euler_a (推荐，替代之前的 ipndm)
+    # - Scheduler: beta (推荐)
     steps = job_input.get("steps", 4)
     seed = job_input.get("seed", 42)
     cfg = job_input.get("cfg", 1.0)
@@ -789,20 +793,32 @@ def handler(job):
             logger.info(f"节点32 (ModelSamplingSD3): shift={shift_value}")
         
         # 节点8: KSampler - widgets_values[0]=seed, [1]=control_after_generate, [2]=steps, [3]=cfg, [4]=sampler_name, [5]=scheduler, [6]=denoise
+        # MEGA v12 推荐: euler_a/beta (根据 Hugging Face 文档)
         if "8" in prompt:
             if "widgets_values" in prompt["8"]:
                 widgets = prompt["8"]["widgets_values"]
                 prompt["8"]["widgets_values"][0] = seed
                 prompt["8"]["widgets_values"][2] = steps
                 prompt["8"]["widgets_values"][3] = cfg
+                # 如果 sampler 未设置或不是推荐值，更新为 euler_a
+                if len(widgets) <= 4 or widgets[4] not in ["euler_a", "euler_ancestral"]:
+                    if len(widgets) <= 4:
+                        widgets.extend([None] * (5 - len(widgets)))
+                    widgets[4] = "euler_a"
+                # 确保 scheduler 是 beta
+                if len(widgets) <= 5 or widgets[5] != "beta":
+                    if len(widgets) <= 5:
+                        widgets.extend([None] * (6 - len(widgets)))
+                    widgets[5] = "beta"
             if "inputs" not in prompt["8"]:
                 prompt["8"]["inputs"] = {}
-            widgets = prompt["8"].get("widgets_values", [seed, "fixed", steps, cfg, "ipndm", "beta", 1])
+            widgets = prompt["8"].get("widgets_values", [seed, "fixed", steps, cfg, "euler_a", "beta", 1])
             prompt["8"]["inputs"]["seed"] = seed
             prompt["8"]["inputs"]["steps"] = steps
             prompt["8"]["inputs"]["cfg"] = cfg
-            prompt["8"]["inputs"]["sampler_name"] = widgets[4] if len(widgets) > 4 else "ipndm"
-            prompt["8"]["inputs"]["scheduler"] = widgets[5] if len(widgets) > 5 else "beta"
+            # MEGA v12 推荐使用 euler_a sampler
+            prompt["8"]["inputs"]["sampler_name"] = widgets[4] if len(widgets) > 4 and widgets[4] else "euler_a"
+            prompt["8"]["inputs"]["scheduler"] = widgets[5] if len(widgets) > 5 and widgets[5] else "beta"
             prompt["8"]["inputs"]["denoise"] = widgets[6] if len(widgets) > 6 else 1.0
             logger.info(f"节点8 (KSampler): seed={seed}, steps={steps}, cfg={cfg}, sampler={prompt['8']['inputs']['sampler_name']}, scheduler={prompt['8']['inputs']['scheduler']}, denoise={prompt['8']['inputs']['denoise']}")
         
