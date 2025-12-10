@@ -614,6 +614,14 @@ def handler(job):
                         converted_inputs = {}
                         # 获取节点的 widgets_values（如果存在）
                         widgets_values = node.get("widgets_values", [])
+                        # widgets_values 可能是列表或字典，确保是列表
+                        if isinstance(widgets_values, dict):
+                            widgets_values = list(widgets_values.values()) if widgets_values else []
+                        elif not isinstance(widgets_values, list):
+                            widgets_values = []
+                        
+                        # 计算 widgets_values 的索引（只计算没有 link 的输入）
+                        widget_index = 0
                         if isinstance(value, list):
                             for input_index, input_item in enumerate(value):
                                 if isinstance(input_item, dict) and "name" in input_item:
@@ -636,8 +644,9 @@ def handler(job):
                                         # 如果没有 link，尝试从 value 字段或 widgets_values 获取值
                                         if "value" in input_item:
                                             converted_inputs[input_name] = input_item["value"]
-                                        elif input_index < len(widgets_values):
-                                            converted_inputs[input_name] = widgets_values[input_index]
+                                        elif widget_index < len(widgets_values):
+                                            converted_inputs[input_name] = widgets_values[widget_index]
+                                            widget_index += 1
                                         # 如果没有值，不设置（可能是可选输入）
                         converted_node["inputs"] = converted_inputs
                     else:
