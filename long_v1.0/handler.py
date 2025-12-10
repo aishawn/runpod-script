@@ -612,8 +612,10 @@ def handler(job):
                     if key == "inputs":
                         # 转换 inputs 数组为 inputs 对象
                         converted_inputs = {}
+                        # 获取节点的 widgets_values（如果存在）
+                        widgets_values = node.get("widgets_values", [])
                         if isinstance(value, list):
-                            for input_item in value:
+                            for input_index, input_item in enumerate(value):
                                 if isinstance(input_item, dict) and "name" in input_item:
                                     input_name = input_item["name"]
                                     if "link" in input_item and input_item["link"] is not None:
@@ -631,8 +633,12 @@ def handler(job):
                                             # 如果找不到 link，保持原值或设为 None
                                             converted_inputs[input_name] = None
                                     else:
-                                        # 如果没有 link，可能是可选输入，不设置
-                                        pass
+                                        # 如果没有 link，尝试从 value 字段或 widgets_values 获取值
+                                        if "value" in input_item:
+                                            converted_inputs[input_name] = input_item["value"]
+                                        elif input_index < len(widgets_values):
+                                            converted_inputs[input_name] = widgets_values[input_index]
+                                        # 如果没有值，不设置（可能是可选输入）
                         converted_node["inputs"] = converted_inputs
                     else:
                         converted_node[key] = value
