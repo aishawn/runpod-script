@@ -858,19 +858,22 @@ def handler(job):
         
         # 节点576: WanVideoVACEStartToEndFrame - widgets_values[0]=num_frames, [1]=empty_frame_level
         if "576" in prompt:
+            empty_frame_level = 1.0  # 默认值
             if "widgets_values" in prompt["576"]:
                 widgets = prompt["576"]["widgets_values"]
                 widgets[0] = length  # num_frames
                 if len(widgets) < 2:
                     widgets.append(1.0)  # empty_frame_level (默认 1.0)
+                empty_frame_level = widgets[1] if len(widgets) > 1 else 1.0
             if "inputs" not in prompt["576"]:
                 prompt["576"]["inputs"] = {}
             prompt["576"]["inputs"]["num_frames"] = length
-            prompt["576"]["inputs"]["empty_frame_level"] = prompt["576"]["widgets_values"][1] if len(prompt["576"]["widgets_values"]) > 1 else 1.0
+            prompt["576"]["inputs"]["empty_frame_level"] = empty_frame_level
             logger.info(f"节点576 (VACE num_frames): {length}, empty_frame_level: {prompt['576']['inputs']['empty_frame_level']}")
         
         # 节点572: WanVaceToVideo - widgets_values[0]=width, [1]=height, [2]=length, [3]=strength, [4]=batch_size
         if "572" in prompt:
+            batch_size = 1  # 默认值
             if "widgets_values" in prompt["572"]:
                 widgets = prompt["572"]["widgets_values"]
                 widgets[0] = adjusted_width
@@ -879,12 +882,13 @@ def handler(job):
                 widgets[3] = 1  # strength = 1 for I2V
                 if len(widgets) < 5:
                     widgets.append(1)  # batch_size
+                batch_size = widgets[4] if len(widgets) > 4 else 1
             if "inputs" not in prompt["572"]:
                 prompt["572"]["inputs"] = {}
             prompt["572"]["inputs"]["width"] = adjusted_width
             prompt["572"]["inputs"]["height"] = adjusted_height
             prompt["572"]["inputs"]["length"] = length
-            prompt["572"]["inputs"]["batch_size"] = prompt["572"]["widgets_values"][4] if len(prompt["572"]["widgets_values"]) > 4 else 1
+            prompt["572"]["inputs"]["batch_size"] = batch_size
             prompt["572"]["inputs"]["strength"] = 1  # I2V mode
             logger.info(f"节点572 (WanVaceToVideo): width={adjusted_width}, height={adjusted_height}, length={length}, batch_size={prompt['572']['inputs']['batch_size']}, strength=1 (I2V)")
         
