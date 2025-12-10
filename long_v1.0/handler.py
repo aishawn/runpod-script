@@ -557,6 +557,9 @@ def handler(job):
     
     workflow_data = load_workflow(workflow_file)
     
+    # 提前获取 length 值，因为在转换 workflow 时可能会用到
+    length = job_input.get("length", 81)
+    
     # 转换 workflow 格式：如果使用 nodes 数组格式，转换为节点 ID key 格式
     if "nodes" in workflow_data:
         # RapidAIO Mega (V2.5).json 使用 nodes 数组格式，需要转换
@@ -680,7 +683,6 @@ def handler(job):
                     prompt["574"]["widgets_values"][0] = new_model
                     logger.info(f"节点 574 模型更新: {current_model} -> {new_model}")
     
-    length = job_input.get("length", 81)
     # MEGA v12 推荐配置（根据 Hugging Face: https://huggingface.co/Phr00t/WAN2.2-14B-Rapid-AllInOne）
     # - Steps: 4 (推荐值，保持向后兼容允许自定义)
     # - CFG: 1.0 (推荐值)
