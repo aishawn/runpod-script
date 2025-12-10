@@ -598,6 +598,12 @@ def handler(job):
                 logger.info(f"跳过 logic 节点 {node_id}，将直接内联其值")
                 continue
             
+            # 跳过 Note 节点（注释节点，ComfyUI API 不支持）
+            node_type = node.get("type", "")
+            if node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note")):
+                logger.info(f"跳过 Note 节点 {node_id}（注释节点，不参与执行）")
+                continue
+            
             # 创建符合 ComfyUI API 格式的节点对象
             converted_node = {}
             # 复制所有字段
