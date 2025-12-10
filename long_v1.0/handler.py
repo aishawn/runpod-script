@@ -614,19 +614,28 @@ def handler(job):
                         converted_inputs = {}
                         # 获取节点的 widgets_values（如果存在）
                         widgets_values = node.get("widgets_values", [])
-                        # widgets_values 可能是列表或字典，确保是列表
-                        if isinstance(widgets_values, dict):
-                            widgets_values = list(widgets_values.values()) if widgets_values else []
-                        elif not isinstance(widgets_values, list):
-                            widgets_values = []
                         
-                        # 计算 widgets_values 的索引（只计算没有 link 的输入）
+                        # widgets_values 可能是列表或字典
+                        # 如果是字典（如 VHS_VideoCombine），需要按 input 名称匹配
+                        # 如果是列表，按顺序匹配有 widget 的 inputs
+                        widgets_values_is_dict = isinstance(widgets_values, dict)
+                        
+                        if not widgets_values_is_dict:
+                            # 确保是列表
+                            if not isinstance(widgets_values, list):
+                                widgets_values = []
+                        
+                        # widgets_values 按 inputs 顺序包含所有有 widget 的输入值（不管是否有 link）
+                        # 需要按 inputs 顺序遍历，但只对有 widget 的输入从 widgets_values 获取值
                         widget_index = 0
                         if isinstance(value, list):
                             for input_index, input_item in enumerate(value):
                                 if isinstance(input_item, dict) and "name" in input_item:
                                     input_name = input_item["name"]
-                                    if "link" in input_item and input_item["link"] is not None:
+                                    has_widget = "widget" in input_item
+                                    has_link = "link" in input_item and input_item["link"] is not None
+                                    
+                                    if has_link:
                                         # 如果有 link，转换为 [node_id, output_index] 格式
                                         link_id = input_item["link"]
                                         if link_id in links_map:
@@ -640,13 +649,27 @@ def handler(job):
                                         else:
                                             # 如果找不到 link，保持原值或设为 None
                                             converted_inputs[input_name] = None
+                                        # 如果有 widget，需要跳过 widgets_values 中的对应值（仅当是列表时）
+                                        if not widgets_values_is_dict and has_widget and widget_index < len(widgets_values):
+                                            widget_index += 1
                                     else:
                                         # 如果没有 link，尝试从 value 字段或 widgets_values 获取值
                                         if "value" in input_item:
                                             converted_inputs[input_name] = input_item["value"]
-                                        elif widget_index < len(widgets_values):
-                                            converted_inputs[input_name] = widgets_values[widget_index]
-                                            widget_index += 1
+                                        elif has_widget:
+                                            # 从 widgets_values 获取值
+                                            widget_value = None
+                                            if widgets_values_is_dict:
+                                                # 字典模式：按名称匹配
+                                                widget_value = widgets_values.get(input_name)
+                                            elif widget_index < len(widgets_values):
+                                                # 列表模式：按顺序匹配
+                                                widget_value = widgets_values[widget_index]
+                                                widget_index += 1
+                                            
+                                            # 跳过 null 值（可能是可选输入）
+                                            if widget_value is not None:
+                                                converted_inputs[input_name] = widget_value
                                         # 如果没有值，不设置（可能是可选输入）
                         converted_node["inputs"] = converted_inputs
                     else:
