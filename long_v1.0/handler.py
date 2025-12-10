@@ -573,7 +573,7 @@ def handler(job):
             # 节点593: Megapixel
             logic_node_values["593"] = job_input.get("megapixel", 0.5)
             # 节点585: Overlapping Frames
-            logic_node_values["585"] = job_input.get("overlapping_frames", 12)
+            logic_node_values["585"] = job_input.get("overlapping_frames", 0)
             logger.info(f"预计算 logic 节点值: 592={logic_node_values['592']}, 593={logic_node_values['593']}, 585={logic_node_values['585']}")
         
         # 首先建立 link_id 到 [node_id, output_index] 的映射
@@ -730,11 +730,14 @@ def handler(job):
     # MEGA v12 推荐配置（根据 Hugging Face: https://huggingface.co/Phr00t/WAN2.2-14B-Rapid-AllInOne）
     # - Steps: 4 (推荐值，保持向后兼容允许自定义)
     # - CFG: 1.0 (推荐值)
-    # - Sampler: euler (推荐，替代之前的 ipndm)
-    # - Scheduler: beta (推荐)
+    # - Sampler: euler_a (推荐，替代之前的 ipndm)
+    # - Scheduler: beta (推荐，替代之前的 sgm_uniform)
     steps = job_input.get("steps", 4)
     seed = job_input.get("seed", 42)
     cfg = job_input.get("cfg", 1.0)
+    # 允许用户自定义 sampler 和 scheduler（保持向后兼容）
+    sampler_name = job_input.get("sampler", "euler_a")
+    scheduler = job_input.get("scheduler", "beta")
     
     # 支持多提示词输入（用于生成更长视频）
     # 可以是字符串（用换行符分隔）或数组
@@ -953,23 +956,25 @@ def handler(job):
                 widgets[0] = seed
                 widgets[2] = steps
                 widgets[3] = cfg
-                # V2.5 workflow 默认使用 ipndm/sgm_uniform
+                # MEGA v12 推荐使用 euler_a/beta（根据 Hugging Face 文档）
                 if len(widgets) <= 4:
                     widgets.extend([None] * (5 - len(widgets)))
                 if len(widgets) <= 5:
                     widgets.extend([None] * (6 - len(widgets)))
+                # 如果用户没有指定或值为 "randomize"，使用推荐的默认值
                 if not widgets[4] or widgets[4] == "randomize":
-                    widgets[4] = "ipndm"  # V2.5 默认
+                    widgets[4] = sampler_name  # 使用 job_input 中的值或默认 euler_a
                 if not widgets[5]:
-                    widgets[5] = "sgm_uniform"  # V2.5 默认
+                    widgets[5] = scheduler  # 使用 job_input 中的值或默认 beta
             if "inputs" not in prompt["563"]:
                 prompt["563"]["inputs"] = {}
-            widgets = prompt["563"].get("widgets_values", [seed, "randomize", steps, cfg, "ipndm", "sgm_uniform", 1])
+            widgets = prompt["563"].get("widgets_values", [seed, "randomize", steps, cfg, sampler_name, scheduler, 1])
             prompt["563"]["inputs"]["seed"] = seed
             prompt["563"]["inputs"]["steps"] = steps
             prompt["563"]["inputs"]["cfg"] = cfg
-            prompt["563"]["inputs"]["sampler_name"] = widgets[4] if len(widgets) > 4 and widgets[4] else "ipndm"
-            prompt["563"]["inputs"]["scheduler"] = widgets[5] if len(widgets) > 5 and widgets[5] else "sgm_uniform"
+            # 使用 job_input 中的值（已包含默认值 euler_a/beta）
+            prompt["563"]["inputs"]["sampler_name"] = widgets[4] if len(widgets) > 4 and widgets[4] else sampler_name
+            prompt["563"]["inputs"]["scheduler"] = widgets[5] if len(widgets) > 5 and widgets[5] else scheduler
             prompt["563"]["inputs"]["denoise"] = widgets[6] if len(widgets) > 6 else 1.0
             logger.info(f"节点563 (KSampler): seed={seed}, steps={steps}, cfg={cfg}, sampler={prompt['563']['inputs']['sampler_name']}, scheduler={prompt['563']['inputs']['scheduler']}, denoise={prompt['563']['inputs']['denoise']}")
         
@@ -1037,11 +1042,11 @@ def handler(job):
         else:
             # 自动计算：对于短视频使用更小的值
             if length < 50:
-                # 短视频：最多 30% 或 12，取较小值
-                context_overlap = min(12, max(1, int(length * 0.3)))
+                # 短视频：最多 30% 或 0，取较小值
+                context_overlap = min(0, max(1, int(length * 0.3)))
             else:
                 # 长视频：最多 60% 或 48，取较小值
-                context_overlap = min(48, max(12, int(length * 0.6)))
+                context_overlap = min(48, max(0, int(length * 0.6)))
             logger.info(f"Auto-calculated context_overlap: {context_overlap} for length: {length}")
         
         if "498" in prompt:
