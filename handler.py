@@ -573,7 +573,7 @@ def handler(job):
             # 节点593: Megapixel
             logic_node_values["593"] = job_input.get("megapixel", 0.5)
             # 节点585: Overlapping Frames
-            logic_node_values["585"] = job_input.get("overlapping_frames", 0)
+            logic_node_values["585"] = job_input.get("overlapping_frames", 1)
             logger.info(f"预计算 logic 节点值: 592={logic_node_values['592']}, 593={logic_node_values['593']}, 585={logic_node_values['585']}")
         
         # 首先建立 link_id 到 [node_id, output_index] 的映射
