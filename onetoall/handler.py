@@ -782,7 +782,7 @@ def handler(job):
                 continue
             
             # 跳过 GetNode 和 SetNode 节点（它们只是辅助节点，已在 links_map 中解析到实际源节点）
-                is_getnode = "GetNode" in str(node_type)
+            is_getnode = "GetNode" in str(node_type)
             is_setnode = node_type == "SetNode"
             if is_getnode:
                 logger.info(f"跳过 GetNode 节点 {node_id}（已在 links_map 中解析到实际源节点）")
