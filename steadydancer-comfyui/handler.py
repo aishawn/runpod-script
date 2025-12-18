@@ -977,7 +977,27 @@ def handler(job):
             
             logger.info(f"节点75 (参考视频): {reference_video_path} -> {video_relative_path}")
         elif "75" in prompt:
-            logger.info("未提供参考视频，将仅使用参考图像和提示词生成运动")
+            # 未提供参考视频时，需要从 prompt 中移除节点75及其依赖链
+            # 否则 ComfyUI 会因为找不到默认视频文件而报错
+            logger.info("未提供参考视频，移除节点75 (VHS_LoadVideo) 及相关节点以避免验证错误")
+            
+            # 收集需要移除的节点：节点75以及依赖于节点75输出的节点
+            nodes_to_remove = ["75"]
+            
+            # 查找依赖于节点75的节点
+            for nid, ndata in list(prompt.items()):
+                if "inputs" in ndata:
+                    for input_name, input_value in list(ndata["inputs"].items()):
+                        if isinstance(input_value, list) and len(input_value) >= 1:
+                            if str(input_value[0]) == "75":
+                                # 这个节点依赖于节点75，标记为需要移除或断开连接
+                                logger.info(f"节点 {nid} 的输入 {input_name} 依赖于节点75，断开连接")
+                                del ndata["inputs"][input_name]
+            
+            # 移除节点75
+            if "75" in prompt:
+                del prompt["75"]
+                logger.info("已移除节点75 (VHS_LoadVideo)")
         
         # 节点22: WanVideoModelLoader - SteadyDancer模型
         if "22" in prompt:
@@ -1122,6 +1142,96 @@ def handler(job):
             logger.info(f"节点117 (视频输出): 已配置")
         
         logger.info("SteadyDancer 工作流节点配置完成")
+
+        # 补充缺失的节点 inputs - 确保所有必需参数都被设置
+        # 节点38: WanVideoVAELoader
+        if "38" in prompt:
+            if "inputs" not in prompt["38"]:
+                prompt["38"]["inputs"] = {}
+            if "widgets_values" in prompt["38"]:
+                widgets = prompt["38"]["widgets_values"]
+                if isinstance(widgets, list) and len(widgets) >= 2:
+                    if "model_name" not in prompt["38"]["inputs"]:
+                        prompt["38"]["inputs"]["model_name"] = widgets[0].replace("\\", "/")
+                    if "load_precision" not in prompt["38"]["inputs"]:
+                        prompt["38"]["inputs"]["load_precision"] = widgets[1]
+            logger.info(f"节点38 (VAE): model_name={prompt['38']['inputs'].get('model_name')}")
+        
+        # 节点59: CLIPVisionLoader
+        if "59" in prompt:
+            if "inputs" not in prompt["59"]:
+                prompt["59"]["inputs"] = {}
+            if "widgets_values" in prompt["59"]:
+                widgets = prompt["59"]["widgets_values"]
+                if isinstance(widgets, list) and len(widgets) >= 1:
+                    if "clip_name" not in prompt["59"]["inputs"]:
+                        prompt["59"]["inputs"]["clip_name"] = widgets[0]
+            logger.info(f"节点59 (CLIPVision): clip_name={prompt['59']['inputs'].get('clip_name')}")
+        
+        # 节点68: ImageResizeKJv2
+        if "68" in prompt:
+            if "inputs" not in prompt["68"]:
+                prompt["68"]["inputs"] = {}
+            if "widgets_values" in prompt["68"]:
+                widgets = prompt["68"]["widgets_values"]
+                if isinstance(widgets, list) and len(widgets) >= 7:
+                    if "upscale_method" not in prompt["68"]["inputs"]:
+                        prompt["68"]["inputs"]["upscale_method"] = widgets[2]
+                    if "keep_proportion" not in prompt["68"]["inputs"]:
+                        prompt["68"]["inputs"]["keep_proportion"] = widgets[3]
+                    if "pad_color" not in prompt["68"]["inputs"]:
+                        prompt["68"]["inputs"]["pad_color"] = widgets[4]
+                    if "crop_position" not in prompt["68"]["inputs"]:
+                        prompt["68"]["inputs"]["crop_position"] = widgets[5]
+                    if "divisible_by" not in prompt["68"]["inputs"]:
+                        prompt["68"]["inputs"]["divisible_by"] = widgets[6]
+            logger.info(f"节点68 (ImageResize): 已补充参数")
+        
+        # 节点77: ImageResizeKJv2
+        if "77" in prompt:
+            if "inputs" not in prompt["77"]:
+                prompt["77"]["inputs"] = {}
+            if "widgets_values" in prompt["77"]:
+                widgets = prompt["77"]["widgets_values"]
+                if isinstance(widgets, list) and len(widgets) >= 7:
+                    if "upscale_method" not in prompt["77"]["inputs"]:
+                        prompt["77"]["inputs"]["upscale_method"] = widgets[2]
+                    if "keep_proportion" not in prompt["77"]["inputs"]:
+                        prompt["77"]["inputs"]["keep_proportion"] = widgets[3]
+                    if "pad_color" not in prompt["77"]["inputs"]:
+                        prompt["77"]["inputs"]["pad_color"] = widgets[4]
+                    if "crop_position" not in prompt["77"]["inputs"]:
+                        prompt["77"]["inputs"]["crop_position"] = widgets[5]
+                    if "divisible_by" not in prompt["77"]["inputs"]:
+                        prompt["77"]["inputs"]["divisible_by"] = widgets[6]
+            logger.info(f"节点77 (ImageResize): 已补充参数")
+        
+        # 节点88: DrawViTPose
+        if "88" in prompt:
+            if "inputs" not in prompt["88"]:
+                prompt["88"]["inputs"] = {}
+            if "widgets_values" in prompt["88"]:
+                widgets = prompt["88"]["widgets_values"]
+                if isinstance(widgets, list) and len(widgets) >= 6:
+                    if "retarget_padding" not in prompt["88"]["inputs"]:
+                        prompt["88"]["inputs"]["retarget_padding"] = widgets[2]
+                    if "hand_stick_width" not in prompt["88"]["inputs"]:
+                        prompt["88"]["inputs"]["hand_stick_width"] = widgets[3]
+                    if "body_stick_width" not in prompt["88"]["inputs"]:
+                        prompt["88"]["inputs"]["body_stick_width"] = widgets[4]
+                    if "draw_head" not in prompt["88"]["inputs"]:
+                        prompt["88"]["inputs"]["draw_head"] = widgets[5]
+            logger.info(f"节点88 (DrawViTPose): 已补充参数")
+        
+        # 节点90: OnnxDetectionModelLoader - 更新inputs而不仅是widgets_values
+        if "90" in prompt:
+            if "inputs" not in prompt["90"]:
+                prompt["90"]["inputs"] = {}
+            # 设置正确的模型路径
+            prompt["90"]["inputs"]["vitpose_model"] = "vitpose_h_wholebody_model.onnx"
+            prompt["90"]["inputs"]["yolo_model"] = "yolov10m.onnx"
+            prompt["90"]["inputs"]["onnx_device"] = "CUDAExecutionProvider"
+            logger.info(f"节点90 (OnnxDetection): vitpose_model=vitpose_h_wholebody_model.onnx")
 
     # 验证关键参数设置 - 无条件输出验证信息
     logger.info("=" * 60)
