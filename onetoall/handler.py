@@ -611,8 +611,23 @@ def handler(job):
                 continue
             
             # 跳过 Note 节点（注释节点，ComfyUI API 不支持）
+            # 但不要跳过 GetNode 节点，即使它的 type 可能包含其他信息
             node_type = node.get("type", "")
-            if node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note")):
+            # 检查是否是 GetNode 节点（GetNode 节点不应该被跳过）
+            # 可能通过 type、class_type 或其他属性识别
+            is_getnode = False
+            if node_type:
+                is_getnode = "GetNode" in str(node_type)
+            # 也检查 class_type（如果存在）
+            if not is_getnode and "class_type" in node:
+                is_getnode = "GetNode" in str(node.get("class_type", ""))
+            # 检查 properties 中是否有标识（某些情况下可能通过其他方式标识）
+            if not is_getnode:
+                properties = node.get("properties", {})
+                # 某些 GetNode 节点可能通过特定属性标识，但这里主要依赖 type/class_type
+                pass
+            
+            if not is_getnode and (node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note"))):
                 logger.info(f"跳过 Note 节点 {node_id}（注释节点，不参与执行）")
                 continue
             
@@ -689,8 +704,19 @@ def handler(job):
             # 将 type 字段转换为 class_type（ComfyUI API 需要）
             if "type" in converted_node:
                 node_type = converted_node["type"]
+                # 对于 GetNode 节点，确保 class_type 正确设置
+                if "GetNode" in str(node_type):
+                    # GetNode 节点可能包含命名空间，如 "GetNode|comfyui-logic"
+                    # 但 ComfyUI API 通常只需要 "GetNode"
+                    if "|" in str(node_type):
+                        # 提取基础类型名称（管道符之前的部分）
+                        base_type = str(node_type).split("|")[0].strip()
+                        converted_node["class_type"] = base_type
+                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} -> {base_type}")
+                    else:
+                        converted_node["class_type"] = node_type
                 # 检查节点类型是否包含管道符（命名空间），如 "MathExpression|pysssss"
-                if "|" in node_type:
+                elif "|" in node_type:
                     # 如果包含管道符，直接使用
                     converted_node["class_type"] = node_type
                 else:
@@ -709,7 +735,20 @@ def handler(job):
                 if "type" in converted_node:
                     converted_node["class_type"] = converted_node["type"]
                 else:
-                    logger.warning(f"节点 {node_id} 缺少 type 和 class_type 字段")
+                    # 如果既没有 type 也没有 class_type，尝试从其他字段推断
+                    # 某些节点可能通过 properties 或其他方式标识
+                    properties = converted_node.get("properties", {})
+                    if properties:
+                        # 某些节点可能通过 cnr_id 或其他属性标识，但这里主要关注 GetNode
+                        logger.warning(f"节点 {node_id} 缺少 type 和 class_type 字段，尝试从 properties 推断")
+                        # 如果无法推断，使用默认值（但这种情况应该很少见）
+                        logger.error(f"节点 {node_id} 无法确定类型，可能导致执行失败")
+                    else:
+                        logger.warning(f"节点 {node_id} 缺少 type 和 class_type 字段")
+            
+            # 确保所有节点都有 inputs 字段（即使是空字典）
+            if "inputs" not in converted_node:
+                converted_node["inputs"] = {}
             
             # 记录 GetNode 节点的转换
             node_class_type = converted_node.get("class_type", "")
@@ -738,6 +777,21 @@ def handler(job):
                             # 检查该节点是否在原始 workflow 中
                             was_in_workflow = referenced_node_id in all_node_ids if 'all_node_ids' in locals() else False
                             missing_nodes.append((node_id_check, input_name, referenced_node_id, was_in_workflow))
+        
+        # 额外检查：确保所有在 links_map 中被引用的源节点都存在
+        for link_id, (source_node_id, _) in links_map.items():
+            source_node_id_str = str(source_node_id)
+            # 如果源节点不是 logic 节点，且不在 prompt 中，但在 all_node_ids 中，说明被错误跳过了
+            if source_node_id_str not in prompt and source_node_id_str not in logic_node_values:
+                if source_node_id_str in all_node_ids:
+                    # 查找引用这个节点的目标节点
+                    for node_id_check, node_data in prompt.items():
+                        if "inputs" in node_data:
+                            for input_name, input_value in node_data["inputs"].items():
+                                if isinstance(input_value, list) and len(input_value) >= 2:
+                                    if str(input_value[0]) == source_node_id_str:
+                                        missing_nodes.append((node_id_check, input_name, source_node_id_str, True))
+                                        break
         
         if missing_nodes:
             logger.warning(f"发现 {len(missing_nodes)} 个缺失的节点引用:")
@@ -775,6 +829,87 @@ def handler(job):
                                         # 更新引用
                                         prompt[node_id_check]["inputs"][input_name] = [alt_node_id, 0]
                                         break
+        
+        # 检查是否有 GetNode 节点本身不存在（节点 176 可能是这种情况）
+        # 如果发现丢失的 GetNode 节点，尝试重新转换并添加
+        for node_id_check in all_node_ids:
+            node_id_str = str(node_id_check)
+            if node_id_str not in prompt and node_id_str not in logic_node_values:
+                # 查找原始节点信息
+                original_node = None
+                for node in workflow_data["nodes"]:
+                    if str(node["id"]) == node_id_str:
+                        original_node = node
+                        break
+                if original_node:
+                    original_type = original_node.get("type", "")
+                    # 检查是否是 GetNode 节点（通过 type 或 class_type 字段）
+                    is_getnode = "GetNode" in str(original_type)
+                    # 也检查 properties 或其他可能标识 GetNode 的字段
+                    if not is_getnode:
+                        properties = original_node.get("properties", {})
+                        if "cnr_id" in properties:
+                            # 某些节点可能通过 cnr_id 标识，但这里主要关注 GetNode
+                            pass
+                    
+                    if is_getnode:
+                        logger.error(f"❌ 严重错误: GetNode 节点 {node_id_str} 在转换时被跳过或丢失！")
+                        logger.error(f"  原始节点类型: {original_type}")
+                        logger.error(f"  这会导致 ComfyUI 报错: 'Cannot execute because node GetNode does not exist. Node ID '#{node_id_str}'")
+                        # 尝试重新转换并添加这个节点
+                        logger.warning(f"  尝试重新添加节点 {node_id_str}...")
+                        try:
+                            # 重新转换节点（复用之前的转换逻辑）
+                            converted_node = {}
+                            for key, value in original_node.items():
+                                if key != "id":
+                                    if key == "inputs":
+                                        # 简化处理：直接复制 inputs（如果是数组格式，需要转换）
+                                        if isinstance(value, list):
+                                            converted_inputs = {}
+                                            for input_item in value:
+                                                if isinstance(input_item, dict) and "name" in input_item:
+                                                    input_name = input_item["name"]
+                                                    if "link" in input_item and input_item["link"] is not None:
+                                                        link_id = input_item["link"]
+                                                        if link_id in links_map:
+                                                            source_node_id, source_output_index = links_map[link_id]
+                                                            if source_node_id not in logic_node_values:
+                                                                converted_inputs[input_name] = [str(source_node_id), source_output_index]
+                                                            else:
+                                                                converted_inputs[input_name] = logic_node_values[source_node_id]
+                                                    elif "value" in input_item:
+                                                        converted_inputs[input_name] = input_item["value"]
+                                            converted_node["inputs"] = converted_inputs
+                                        else:
+                                            converted_node["inputs"] = value
+                                    else:
+                                        converted_node[key] = value
+                            
+                            # 设置 class_type
+                            if "type" in converted_node:
+                                node_type = converted_node["type"]
+                                if "GetNode" in str(node_type):
+                                    if "|" in str(node_type):
+                                        base_type = str(node_type).split("|")[0].strip()
+                                        converted_node["class_type"] = base_type
+                                    else:
+                                        converted_node["class_type"] = node_type
+                                else:
+                                    converted_node["class_type"] = node_type
+                            elif "class_type" not in converted_node:
+                                converted_node["class_type"] = original_type if original_type else "GetNode"
+                            
+                            # 确保 inputs 存在
+                            if "inputs" not in converted_node:
+                                converted_node["inputs"] = {}
+                            
+                            # 添加到 prompt
+                            prompt[node_id_str] = converted_node
+                            logger.info(f"✅ 成功重新添加 GetNode 节点 {node_id_str}")
+                        except Exception as e:
+                            logger.error(f"❌ 重新添加节点 {node_id_str} 失败: {e}")
+                            logger.error(f"  节点数据: {json.dumps(original_node, indent=2, ensure_ascii=False)[:500]}")
         
         # 记录所有 GetNode 节点
         getnode_nodes = []
