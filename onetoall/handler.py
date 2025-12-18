@@ -707,14 +707,16 @@ def handler(job):
                 # 对于 GetNode 节点，确保 class_type 正确设置
                 if "GetNode" in str(node_type):
                     # GetNode 节点可能包含命名空间，如 "GetNode|comfyui-logic"
-                    # 但 ComfyUI API 通常只需要 "GetNode"
+                    # 如果已经包含命名空间，使用它；否则尝试添加 comfyui-logic 命名空间
                     if "|" in str(node_type):
-                        # 提取基础类型名称（管道符之前的部分）
-                        base_type = str(node_type).split("|")[0].strip()
-                        converted_node["class_type"] = base_type
-                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} -> {base_type}")
-                    else:
+                        # 已经包含命名空间，直接使用
                         converted_node["class_type"] = node_type
+                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} (已包含命名空间)")
+                    else:
+                        # 没有命名空间，尝试添加 comfyui-logic（GetNode 通常来自这个插件）
+                        # 但首先尝试直接使用 "GetNode"，如果不行再添加命名空间
+                        converted_node["class_type"] = node_type
+                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} -> {node_type} (无命名空间)")
                 # 检查节点类型是否包含管道符（命名空间），如 "MathExpression|pysssss"
                 elif "|" in node_type:
                     # 如果包含管道符，直接使用
@@ -757,11 +759,15 @@ def handler(job):
                 # 确保 GetNode 节点有必要的字段
                 if "inputs" not in converted_node:
                     converted_node["inputs"] = {}
+                # GetNode 节点可能需要特殊的 inputs 配置
+                # 根据 ComfyUI API，GetNode 节点通常不需要 inputs，但需要确保字段存在
                 if "widgets_values" in converted_node and converted_node["widgets_values"]:
                     # GetNode 通常通过 widgets_values[0] 指定要获取的节点名称
                     get_node_name = converted_node["widgets_values"][0] if isinstance(converted_node["widgets_values"], list) else None
                     if get_node_name:
                         logger.info(f"  GetNode {node_id} 尝试获取节点: {get_node_name}")
+                # 记录完整的节点信息用于调试
+                logger.info(f"  GetNode {node_id} 完整配置: class_type={converted_node.get('class_type')}, inputs={converted_node.get('inputs')}, widgets_values={converted_node.get('widgets_values')}")
             
             prompt[node_id] = converted_node
         
@@ -917,6 +923,17 @@ def handler(job):
             if "GetNode" in str(node_data.get("class_type", "")):
                 getnode_nodes.append(node_id_check)
         
+        # 特别检查节点 176（如果存在）
+        if "176" in all_node_ids:
+            if "176" in prompt:
+                logger.info(f"✓ 节点 176 (GetNode) 已成功转换")
+                node_176 = prompt["176"]
+                logger.info(f"  节点 176 class_type: {node_176.get('class_type')}")
+                logger.info(f"  节点 176 inputs: {node_176.get('inputs')}")
+                logger.info(f"  节点 176 widgets_values: {node_176.get('widgets_values')}")
+            else:
+                logger.error(f"❌ 节点 176 (GetNode) 在原始 workflow 中存在，但转换后丢失！")
+        
         if getnode_nodes:
             logger.info(f"发现 {len(getnode_nodes)} 个 GetNode 节点: {getnode_nodes}")
             for getnode_id in getnode_nodes:
@@ -925,6 +942,11 @@ def handler(job):
                 if widgets_values and len(widgets_values) > 0:
                     get_node_name = widgets_values[0] if isinstance(widgets_values, list) else None
                     logger.info(f"  GetNode {getnode_id} 尝试获取: {get_node_name}")
+                # 验证节点配置完整性
+                if "class_type" not in node_data:
+                    logger.error(f"  ❌ GetNode {getnode_id} 缺少 class_type 字段！")
+                if "inputs" not in node_data:
+                    logger.error(f"  ❌ GetNode {getnode_id} 缺少 inputs 字段！")
         
         logger.info("已转换 nodes 数组格式为节点 ID key 格式")
     else:
