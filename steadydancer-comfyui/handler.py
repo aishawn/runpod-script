@@ -44,6 +44,175 @@ def should_skip_node(node_type):
     if node_type_str == "PrimitiveNode":
         return True
     return False
+
+def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
+    """根据 widgets_values 补充节点的 inputs（用于列表格式的 widgets_values）"""
+    if not isinstance(widgets_values, list) or len(widgets_values) == 0:
+        return
+    
+    class_type = node_data.get("class_type") or node_data.get("type", "")
+    inputs = node_data.get("inputs", {})
+    
+    # 根据节点类型映射 widgets_values 到 inputs
+    if class_type == "WanVideoTextEncodeCached":
+        # widgets_values: [model_name, precision, positive_prompt, negative_prompt, quantization, use_disk_cache, device]
+        if len(widgets_values) > 0 and "model_name" not in inputs:
+            inputs["model_name"] = widgets_values[0]
+        if len(widgets_values) > 1 and "precision" not in inputs:
+            inputs["precision"] = widgets_values[1]
+        if len(widgets_values) > 2 and "positive_prompt" not in inputs:
+            inputs["positive_prompt"] = widgets_values[2]
+        if len(widgets_values) > 3 and "negative_prompt" not in inputs:
+            inputs["negative_prompt"] = widgets_values[3]
+        if len(widgets_values) > 4 and "quantization" not in inputs:
+            inputs["quantization"] = widgets_values[4]
+        if len(widgets_values) > 5 and "use_disk_cache" not in inputs:
+            inputs["use_disk_cache"] = widgets_values[5]
+        if len(widgets_values) > 6 and "device" not in inputs:
+            inputs["device"] = widgets_values[6]
+    
+    elif class_type == "WanVideoSamplerSettings":
+        # widgets_values: [steps, ?, ?, seed, sampler, ?, scheduler, shift, force_offload, riflex_freq_index, ...]
+        if len(widgets_values) > 7 and "shift" not in inputs:
+            inputs["shift"] = widgets_values[7]
+        if len(widgets_values) > 8 and "force_offload" not in inputs:
+            inputs["force_offload"] = widgets_values[8]
+        if len(widgets_values) > 9 and "riflex_freq_index" not in inputs:
+            inputs["riflex_freq_index"] = widgets_values[9]
+    
+    elif class_type == "WanVideoModelLoader":
+        # widgets_values: [model_path, load_device, base_precision, quantization, ...]
+        if len(widgets_values) > 1 and "load_device" not in inputs:
+            inputs["load_device"] = widgets_values[1]
+        if len(widgets_values) > 2 and "base_precision" not in inputs:
+            inputs["base_precision"] = widgets_values[2]
+        if len(widgets_values) > 3 and "quantization" not in inputs:
+            inputs["quantization"] = widgets_values[3]
+    
+    elif class_type == "WanVideoLoraSelect":
+        # widgets_values: [lora_path, strength, ...]
+        if len(widgets_values) > 0 and "lora" not in inputs:
+            inputs["lora"] = widgets_values[0]
+        if len(widgets_values) > 1 and "strength" not in inputs:
+            inputs["strength"] = widgets_values[1]
+    
+    elif class_type == "WanVideoImageToVideoEncode":
+        # widgets_values: [height, width, num_frames, start_latent_strength, end_latent_strength, noise_aug_strength, force_offload, ...]
+        if len(widgets_values) > 3 and "start_latent_strength" not in inputs:
+            inputs["start_latent_strength"] = widgets_values[3]
+        if len(widgets_values) > 4 and "end_latent_strength" not in inputs:
+            inputs["end_latent_strength"] = widgets_values[4]
+        if len(widgets_values) > 5 and "noise_aug_strength" not in inputs:
+            inputs["noise_aug_strength"] = widgets_values[5]
+        if len(widgets_values) > 6 and "force_offload" not in inputs:
+            inputs["force_offload"] = widgets_values[6]
+    
+    elif class_type == "WanVideoAddSteadyDancerEmbeds":
+        # widgets_values: [pose_strength_spatial, pose_strength_temporal, start_percent, end_percent, ...]
+        if len(widgets_values) > 0 and "pose_strength_spatial" not in inputs:
+            inputs["pose_strength_spatial"] = widgets_values[0]
+        if len(widgets_values) > 1 and "pose_strength_temporal" not in inputs:
+            inputs["pose_strength_temporal"] = widgets_values[1]
+        if len(widgets_values) > 2 and "start_percent" not in inputs:
+            inputs["start_percent"] = widgets_values[2]
+        if len(widgets_values) > 3 and "end_percent" not in inputs:
+            inputs["end_percent"] = widgets_values[3]
+    
+    elif class_type == "WanVideoBlockSwap":
+        # widgets_values: [offload_txt_emb, offload_img_emb, blocks_to_swap, ...]
+        if len(widgets_values) > 0 and "offload_txt_emb" not in inputs:
+            inputs["offload_txt_emb"] = widgets_values[0]
+        if len(widgets_values) > 1 and "offload_img_emb" not in inputs:
+            inputs["offload_img_emb"] = widgets_values[1]
+        if len(widgets_values) > 2 and "blocks_to_swap" not in inputs:
+            inputs["blocks_to_swap"] = widgets_values[2]
+    
+    elif class_type == "WanVideoTorchCompileSettings":
+        # widgets_values: [dynamo_cache_size_limit, backend, compile_transformer_blocks_only, mode, fullgraph, dynamic, ...]
+        if len(widgets_values) > 0 and "dynamo_cache_size_limit" not in inputs:
+            inputs["dynamo_cache_size_limit"] = widgets_values[0]
+        if len(widgets_values) > 1 and "backend" not in inputs:
+            inputs["backend"] = widgets_values[1]
+        if len(widgets_values) > 2 and "compile_transformer_blocks_only" not in inputs:
+            inputs["compile_transformer_blocks_only"] = widgets_values[2]
+        if len(widgets_values) > 3 and "mode" not in inputs:
+            inputs["mode"] = widgets_values[3]
+        if len(widgets_values) > 4 and "fullgraph" not in inputs:
+            inputs["fullgraph"] = widgets_values[4]
+        if len(widgets_values) > 5 and "dynamic" not in inputs:
+            inputs["dynamic"] = widgets_values[5]
+    
+    elif class_type == "ImageConcatMulti":
+        # widgets_values: [direction, inputcount, match_image_size, ...]
+        if len(widgets_values) > 0 and "direction" not in inputs:
+            inputs["direction"] = widgets_values[0]
+        if len(widgets_values) > 1 and "inputcount" not in inputs:
+            inputs["inputcount"] = widgets_values[1]
+        if len(widgets_values) > 2 and "match_image_size" not in inputs:
+            inputs["match_image_size"] = widgets_values[2]
+    
+    elif class_type == "WanVideoDecode":
+        # widgets_values: [tile_x, tile_y, tile_stride_x, tile_stride_y, ...]
+        if len(widgets_values) > 0 and "tile_x" not in inputs:
+            inputs["tile_x"] = widgets_values[0]
+        if len(widgets_values) > 1 and "tile_y" not in inputs:
+            inputs["tile_y"] = widgets_values[1]
+        if len(widgets_values) > 2 and "tile_stride_x" not in inputs:
+            inputs["tile_stride_x"] = widgets_values[2]
+        if len(widgets_values) > 3 and "tile_stride_y" not in inputs:
+            inputs["tile_stride_y"] = widgets_values[3]
+    
+    elif class_type == "WanVideoEncode":
+        # widgets_values: [enable_vae_tiling, tile_x, tile_y, tile_stride_x, tile_stride_y, ...]
+        if len(widgets_values) > 0 and "enable_vae_tiling" not in inputs:
+            inputs["enable_vae_tiling"] = widgets_values[0]
+        if len(widgets_values) > 1 and "tile_x" not in inputs:
+            inputs["tile_x"] = widgets_values[1]
+        if len(widgets_values) > 2 and "tile_y" not in inputs:
+            inputs["tile_y"] = widgets_values[2]
+        if len(widgets_values) > 3 and "tile_stride_x" not in inputs:
+            inputs["tile_stride_x"] = widgets_values[3]
+        if len(widgets_values) > 4 and "tile_stride_y" not in inputs:
+            inputs["tile_stride_y"] = widgets_values[4]
+    
+    elif class_type == "WanVideoContextOptions":
+        # widgets_values: [context_frames, context_overlap, context_stride, context_schedule, freenoise, verbose, ...]
+        if len(widgets_values) > 0 and "context_frames" not in inputs:
+            inputs["context_frames"] = widgets_values[0]
+        if len(widgets_values) > 1 and "context_overlap" not in inputs:
+            inputs["context_overlap"] = widgets_values[1]
+        if len(widgets_values) > 2 and "context_stride" not in inputs:
+            inputs["context_stride"] = widgets_values[2]
+        if len(widgets_values) > 3 and "context_schedule" not in inputs:
+            inputs["context_schedule"] = widgets_values[3]
+        if len(widgets_values) > 4 and "freenoise" not in inputs:
+            inputs["freenoise"] = widgets_values[4]
+        if len(widgets_values) > 5 and "verbose" not in inputs:
+            inputs["verbose"] = widgets_values[5]
+    
+    elif class_type == "GetImageRangeFromBatch":
+        # widgets_values: [num_frames, start_index, ...]
+        if len(widgets_values) > 0 and "num_frames" not in inputs:
+            inputs["num_frames"] = widgets_values[0]
+        if len(widgets_values) > 1 and "start_index" not in inputs:
+            inputs["start_index"] = widgets_values[1]
+    
+    elif class_type == "WanVideoClipVisionEncode":
+        # widgets_values: [image_1, strength_1, strength_2, crop, combine_embeds, clip_vision, force_offload, ...]
+        if len(widgets_values) > 0 and "image_1" not in inputs:
+            inputs["image_1"] = widgets_values[0]
+        if len(widgets_values) > 1 and "strength_1" not in inputs:
+            inputs["strength_1"] = widgets_values[1]
+        if len(widgets_values) > 2 and "strength_2" not in inputs:
+            inputs["strength_2"] = widgets_values[2]
+        if len(widgets_values) > 3 and "crop" not in inputs:
+            inputs["crop"] = widgets_values[3]
+        if len(widgets_values) > 4 and "combine_embeds" not in inputs:
+            inputs["combine_embeds"] = widgets_values[4]
+        if len(widgets_values) > 5 and "clip_vision" not in inputs:
+            inputs["clip_vision"] = widgets_values[5]
+        if len(widgets_values) > 6 and "force_offload" not in inputs:
+            inputs["force_offload"] = widgets_values[6]
 def process_input(input_data, temp_dir, output_filename, input_type):
     """입력 데이터를 처리하여 파일 경로를 반환하는 함수"""
     if input_type == "path":
@@ -437,6 +606,20 @@ def handler(job):
                                             if widget_value is not None:
                                                 converted_inputs[input_name] = widget_value
                                         # 如果没有值，不设置（可能是可选输入）
+                        
+                        # 如果 widgets_values 是字典，将所有 widget 值复制到 inputs 中
+                        # 这对于 VHS_VideoCombine 等节点很重要，因为它们有很多 widget 参数
+                        if widgets_values_is_dict:
+                            for widget_name, widget_value in widgets_values.items():
+                                # 跳过特殊字段（如 videopreview）
+                                if widget_name in ["videopreview"]:
+                                    continue
+                                # 如果输入已经有值（如有 link 的输入），不覆盖
+                                if widget_name not in converted_inputs:
+                                    # 跳过 null 值
+                                    if widget_value is not None:
+                                        converted_inputs[widget_name] = widget_value
+                        
                         converted_node["inputs"] = converted_inputs
                     else:
                         converted_node[key] = value
@@ -464,6 +647,13 @@ def handler(job):
                     converted_node["class_type"] = converted_node["type"]
                 else:
                     logger.warning(f"节点 {node_id} 缺少 type 和 class_type 字段")
+            
+            # 对于列表格式的 widgets_values，根据节点类型补充缺失的 inputs
+            # 需要在设置 class_type 之后调用
+            widgets_values = node.get("widgets_values", [])
+            if not isinstance(widgets_values, dict) and isinstance(widgets_values, list) and len(widgets_values) > 0:
+                supplement_node_inputs_from_widgets(node_id, converted_node, widgets_values)
+            
             prompt[node_id] = converted_node
         
         # 验证所有引用的节点都存在，并移除无效引用
@@ -634,12 +824,21 @@ def handler(job):
         
         # 节点69: WanVideoLoraSelect - LoRA选择
         if "69" in prompt:
+            lora_path = "WanVideo/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
             if "widgets_values" in prompt["69"]:
                 widgets = prompt["69"]["widgets_values"]
                 if len(widgets) > 0:
-                    lora_path = "WanVideo/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
                     widgets[0] = lora_path
-            logger.info(f"节点69 (LoRA): lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors")
+            # 同时更新 inputs
+            if "inputs" not in prompt["69"]:
+                prompt["69"]["inputs"] = {}
+            prompt["69"]["inputs"]["lora"] = lora_path
+            # strength 参数如果有默认值，从 widgets_values 获取，否则使用默认值 1.0
+            if "widgets_values" in prompt["69"] and len(prompt["69"]["widgets_values"]) > 1:
+                prompt["69"]["inputs"]["strength"] = prompt["69"]["widgets_values"][1]
+            else:
+                prompt["69"]["inputs"]["strength"] = 1.0
+            logger.info(f"节点69 (LoRA): {lora_path}")
         
         # 节点63: WanVideoImageToVideoEncode - 图像到视频编码
         if "63" in prompt:
@@ -688,7 +887,47 @@ def handler(job):
                     widgets["filename_prefix"] = job_input.get("filename_prefix", "WanVideoWrapper_SteadyDancer")
                     widgets["format"] = "video/h264-mp4"
                     widgets["save_output"] = True
+                    # 确保所有必需的参数都有值
+                    if "loop_count" not in widgets:
+                        widgets["loop_count"] = 0
+                    if "pingpong" not in widgets:
+                        widgets["pingpong"] = False
+            # 同时更新 inputs，确保参数被正确设置
+            if "inputs" not in prompt["83"]:
+                prompt["83"]["inputs"] = {}
+            prompt["83"]["inputs"]["frame_rate"] = job_input.get("frame_rate", 24)
+            prompt["83"]["inputs"]["filename_prefix"] = job_input.get("filename_prefix", "WanVideoWrapper_SteadyDancer")
+            prompt["83"]["inputs"]["format"] = "video/h264-mp4"
+            prompt["83"]["inputs"]["save_output"] = True
+            prompt["83"]["inputs"]["loop_count"] = 0
+            prompt["83"]["inputs"]["pingpong"] = False
             logger.info(f"节点83 (视频输出): 已配置")
+        
+        # 节点117: VHS_VideoCombine - 视频输出（中间节点，用于姿态检测）
+        if "117" in prompt:
+            if "widgets_values" in prompt["117"]:
+                widgets = prompt["117"]["widgets_values"]
+                if isinstance(widgets, dict):
+                    # 节点117通常用于中间输出，不需要保存
+                    if "save_output" not in widgets:
+                        widgets["save_output"] = False
+                    if "loop_count" not in widgets:
+                        widgets["loop_count"] = 0
+                    if "pingpong" not in widgets:
+                        widgets["pingpong"] = False
+                    if "format" not in widgets:
+                        widgets["format"] = "video/h264-mp4"
+                    if "frame_rate" not in widgets:
+                        widgets["frame_rate"] = 24
+            # 同时更新 inputs
+            if "inputs" not in prompt["117"]:
+                prompt["117"]["inputs"] = {}
+            prompt["117"]["inputs"]["save_output"] = False
+            prompt["117"]["inputs"]["loop_count"] = 0
+            prompt["117"]["inputs"]["pingpong"] = False
+            prompt["117"]["inputs"]["format"] = "video/h264-mp4"
+            prompt["117"]["inputs"]["frame_rate"] = 24
+            logger.info(f"节点117 (视频输出): 已配置")
         
         logger.info("SteadyDancer 工作流节点配置完成")
 
