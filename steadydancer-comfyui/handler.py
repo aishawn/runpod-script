@@ -28,6 +28,22 @@ def to_nearest_multiple_of_16(value):
     if adjusted < 16:
         adjusted = 16
     return adjusted
+
+def should_skip_node(node_type):
+    """检查节点类型是否应该被跳过（ComfyUI API 不支持的节点类型）"""
+    if not node_type:
+        return False
+    node_type_str = str(node_type)
+    # 跳过 Note 节点（注释节点）
+    if node_type_str == "Note" or node_type_str.startswith("Note"):
+        return True
+    # 跳过 GetNode 和 SetNode 节点（ComfyUI-KJNodes 辅助节点）
+    if node_type_str == "GetNode" or node_type_str == "SetNode":
+        return True
+    # 跳过 PrimitiveNode 节点（ComfyUI 辅助节点，API 不支持）
+    if node_type_str == "PrimitiveNode":
+        return True
+    return False
 def process_input(input_data, temp_dir, output_filename, input_type):
     """입력 데이터를 처리하여 파일 경로를 반환하는 함수"""
     if input_type == "path":
@@ -321,18 +337,14 @@ def handler(job):
         for node in workflow_data["nodes"]:
             node_id = str(node["id"]).lstrip('#')  # 移除可能的 '#' 前缀
             node_type = node.get("type", "")
-            # 跳过 Note 节点
-            if node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note")):
-                logger.info(f"跳过 Note 节点 {node_id}（注释节点，不参与执行）")
-                continue
-            # 跳过 GetNode 和 SetNode 节点（ComfyUI-KJNodes 辅助节点，API 不支持）
-            if node_type == "GetNode" or node_type == "SetNode":
-                logger.info(f"跳过 {node_type} 节点 {node_id}（辅助节点，ComfyUI API 不支持）")
+            # 跳过不支持的节点类型
+            if should_skip_node(node_type):
+                logger.info(f"跳过 {node_type} 节点 {node_id}（ComfyUI API 不支持）")
                 continue
             valid_node_ids.add(node_id)
         
         # 建立 link_id 到 [node_id, output_index] 的映射
-        # 只包含指向有效节点的 link
+        # 只包含指向有效节点的 link（源节点和目标节点都必须是有效节点）
         links_map = {}
         if "links" in workflow_data:
             for link in workflow_data["links"]:
@@ -343,23 +355,22 @@ def handler(job):
                     source_output_index = link[2]
                     target_node_id = str(link[3]).lstrip('#')  # 移除可能的 '#' 前缀
                     target_input_index = link[4]
-                    # 只存储指向有效节点的 link
-                    if source_node_id in valid_node_ids:
+                    # 只存储源节点和目标节点都在有效节点中的 link
+                    if source_node_id in valid_node_ids and target_node_id in valid_node_ids:
                         links_map[link_id] = [source_node_id, source_output_index]
                     else:
-                        logger.warning(f"跳过 link {link_id}：源节点 {source_node_id} 不存在（可能是被跳过的 Note 节点）")
+                        if source_node_id not in valid_node_ids:
+                            logger.warning(f"跳过 link {link_id}：源节点 {source_node_id} 不存在（可能是被跳过的辅助节点）")
+                        if target_node_id not in valid_node_ids:
+                            logger.warning(f"跳过 link {link_id}：目标节点 {target_node_id} 不存在（可能是被跳过的辅助节点）")
         
         for node in workflow_data["nodes"]:
             node_id = str(node["id"]).lstrip('#')  # 确保节点 ID 不包含 '#' 前缀
             
-            # 跳过 Note 节点（注释节点，ComfyUI API 不支持）
-            # 跳过 GetNode 和 SetNode 节点（ComfyUI-KJNodes 辅助节点，API 不支持）
+            # 跳过不支持的节点类型
             node_type = node.get("type", "")
-            if node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note")):
-                logger.info(f"跳过 Note 节点 {node_id}（注释节点，不参与执行）")
-                continue
-            if node_type == "GetNode" or node_type == "SetNode":
-                logger.info(f"跳过 {node_type} 节点 {node_id}（辅助节点，ComfyUI API 不支持）")
+            if should_skip_node(node_type):
+                logger.info(f"跳过 {node_type} 节点 {node_id}（ComfyUI API 不支持）")
                 continue
             
             # 创建符合 ComfyUI API 格式的节点对象
@@ -397,17 +408,13 @@ def handler(job):
                                         # 如果有 link，转换为 [node_id, output_index] 格式
                                         link_id = input_item["link"]
                                         if link_id in links_map:
+                                            # links_map 中只包含有效节点的链接，所以不需要再次验证
                                             source_node_id, source_output_index = links_map[link_id]
-                                            # 验证引用的节点是否存在
-                                            if source_node_id in valid_node_ids:
-                                                converted_inputs[input_name] = [source_node_id, source_output_index]
-                                            else:
-                                                logger.warning(f"节点 {node_id} 的输入 {input_name} 引用了不存在的节点 {source_node_id}，跳过此输入")
-                                                # 不设置此输入，让 ComfyUI 使用默认值
+                                            converted_inputs[input_name] = [source_node_id, source_output_index]
                                         else:
                                             # 如果找不到 link，可能是引用了被跳过的节点
-                                            logger.warning(f"节点 {node_id} 的输入 {input_name} 的 link {link_id} 不存在，跳过此输入")
-                                            # 不设置此输入
+                                            logger.warning(f"节点 {node_id} 的输入 {input_name} 的 link {link_id} 不存在（可能指向被跳过的辅助节点），跳过此输入")
+                                            # 不设置此输入，让 ComfyUI 使用默认值
                                         # 如果有 widget，需要跳过 widgets_values 中的对应值（仅当是列表时）
                                         if not widgets_values_is_dict and has_widget and widget_index < len(widgets_values):
                                             widget_index += 1
@@ -461,7 +468,15 @@ def handler(job):
         
         # 验证所有引用的节点都存在，并移除无效引用
         missing_nodes = set()
+        nodes_to_remove = []
         for node_id, node_data in prompt.items():
+            # 双重检查：确保 prompt 中不包含不支持的节点类型
+            node_type = node_data.get("type") or node_data.get("class_type", "")
+            if should_skip_node(node_type):
+                logger.warning(f"发现无效节点 {node_id} (类型: {node_type})，将从 prompt 中移除")
+                nodes_to_remove.append(node_id)
+                continue
+            
             inputs = node_data.get("inputs", {})
             inputs_to_remove = []
             for input_name, input_value in inputs.items():
@@ -475,6 +490,11 @@ def handler(job):
             # 移除无效的输入引用
             for input_name in inputs_to_remove:
                 del inputs[input_name]
+        
+        # 移除无效节点
+        for node_id in nodes_to_remove:
+            del prompt[node_id]
+            logger.info(f"已移除无效节点 {node_id}")
         
         if missing_nodes:
             logger.warning(f"发现 {len(missing_nodes)} 个不存在的节点引用: {missing_nodes}，已自动移除")
