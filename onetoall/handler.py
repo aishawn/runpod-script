@@ -602,7 +602,83 @@ def handler(job):
             logic_node_values["585"] = job_input.get("overlapping_frames", 1)
             logger.info(f"预计算 logic 节点值: 592={logic_node_values['592']}, 593={logic_node_values['593']}, 585={logic_node_values['585']}")
         
-        # 首先建立 link_id 到 [node_id, output_index] 的映射
+        # 首先建立所有节点的映射（用于查找 SetNode 和 GetNode）
+        all_nodes_map = {}
+        for node in workflow_data["nodes"]:
+            all_nodes_map[str(node["id"])] = node
+        
+        # 建立 SetNode 名称到实际源节点的映射
+        # GetNode 通过 widgets_values[0] 获取 SetNode 的名称，然后通过这个映射找到实际源节点
+        setnode_source_map = {}
+        
+        def resolve_setnode_source(setnode_node_id, visited=None):
+            """递归解析 SetNode 的源节点"""
+            if visited is None:
+                visited = set()
+            if setnode_node_id in visited:
+                return None  # 避免循环
+            visited.add(setnode_node_id)
+            
+            setnode_node = all_nodes_map.get(setnode_node_id)
+            if not setnode_node or setnode_node.get("type") != "SetNode":
+                return None
+            
+            # SetNode 的输入应该连接到实际源节点
+            if "inputs" in setnode_node and isinstance(setnode_node["inputs"], list):
+                for input_item in setnode_node["inputs"]:
+                    if isinstance(input_item, dict) and "link" in input_item and input_item["link"] is not None:
+                        link_id = input_item["link"]
+                        # 在 links 中找到这个 link
+                        if "links" in workflow_data:
+                            for link in workflow_data["links"]:
+                                if len(link) >= 6 and link[0] == link_id:
+                                    source_node_id = str(link[1])
+                                    source_output_index = link[2]
+                                    
+                                    # 如果源节点是 SetNode 或 GetNode，递归解析；否则直接返回源节点
+                                    source_node = all_nodes_map.get(source_node_id)
+                                    if source_node:
+                                        if source_node.get("type") == "SetNode":
+                                            result = resolve_setnode_source(source_node_id, visited)
+                                            if result:
+                                                return result
+                                        elif source_node.get("type") == "GetNode":
+                                            # GetNode 通过 widgets_values[0] 获取 SetNode 的名称
+                                            widgets_values = source_node.get("widgets_values", [])
+                                            if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                                                getnode_name = widgets_values[0]
+                                                # 查找对应的 SetNode
+                                                for sn_id, sn_node in all_nodes_map.items():
+                                                    if sn_node.get("type") == "SetNode":
+                                                        sn_widgets = sn_node.get("widgets_values", [])
+                                                        if isinstance(sn_widgets, list) and len(sn_widgets) > 0 and sn_widgets[0] == getnode_name:
+                                                            result = resolve_setnode_source(sn_id, visited)
+                                                            if result:
+                                                                return result
+                                        else:
+                                            # 源节点不是 SetNode 或 GetNode，直接返回源节点
+                                            return [source_node_id, source_output_index]
+                                    else:
+                                        # 源节点不在 all_nodes_map 中（可能是被跳过的节点），直接返回
+                                        return [source_node_id, source_output_index]
+                                    break
+            return None
+        
+        # 建立所有 SetNode 的映射
+        for node_id, node in all_nodes_map.items():
+            if node.get("type") == "SetNode":
+                widgets_values = node.get("widgets_values", [])
+                if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                    setnode_name = widgets_values[0]
+                    resolved_source = resolve_setnode_source(node_id)
+                    if resolved_source:
+                        setnode_source_map[setnode_name] = resolved_source
+                        logger.info(f"SetNode {node_id} ({setnode_name}) 映射到源节点 {resolved_source[0]}:{resolved_source[1]}")
+                    else:
+                        logger.warning(f"SetNode {node_id} ({setnode_name}) 无法解析到有效源节点")
+        
+        # 建立 link_id 到 [node_id, output_index] 的映射
+        # 对于指向 GetNode 的 link，需要解析到对应的 SetNode，然后再解析到实际源节点
         links_map = {}
         if "links" in workflow_data:
             for link in workflow_data["links"]:
@@ -613,8 +689,29 @@ def handler(job):
                     source_output_index = link[2]
                     target_node_id = str(link[3])
                     target_input_index = link[4]
-                    # 存储映射：link_id -> [source_node_id, source_output_index]
-                    links_map[link_id] = [source_node_id, source_output_index]
+                    
+                    # 如果源节点是 GetNode，需要解析到对应的 SetNode，然后再解析到实际源节点
+                    resolved_source_node_id = source_node_id
+                    resolved_source_output_index = source_output_index
+                    
+                    source_node = all_nodes_map.get(source_node_id)
+                    if source_node and source_node.get("type") == "GetNode":
+                        # GetNode 通过 widgets_values[0] 获取 SetNode 的名称
+                        widgets_values = source_node.get("widgets_values", [])
+                        if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                            getnode_name = widgets_values[0]
+                            # 在 setnode_source_map 中查找
+                            if getnode_name in setnode_source_map:
+                                resolved_source_node_id, resolved_source_output_index = setnode_source_map[getnode_name]
+                                logger.info(f"Link {link_id} 通过 GetNode {source_node_id} ({getnode_name}) 解析到源节点 {resolved_source_node_id}:{resolved_source_output_index}")
+                            else:
+                                logger.warning(f"Link {link_id} 的 GetNode {source_node_id} ({getnode_name}) 无法找到对应的 SetNode，将保持原链接")
+                                # 如果无法解析，保持原链接（可能会导致错误，但至少不会丢失链接）
+                        else:
+                            logger.warning(f"Link {link_id} 的 GetNode {source_node_id} 没有 widgets_values，将保持原链接")
+                    
+                    # 存储映射：link_id -> [resolved_source_node_id, resolved_source_output_index]
+                    links_map[link_id] = [resolved_source_node_id, resolved_source_output_index]
         
         # 记录所有节点ID，用于后续验证
         all_node_ids = set()
@@ -632,24 +729,19 @@ def handler(job):
                 continue
             
             # 跳过 Note 节点（注释节点，ComfyUI API 不支持）
-            # 但不要跳过 GetNode 节点，即使它的 type 可能包含其他信息
             node_type = node.get("type", "")
-            # 检查是否是 GetNode 节点（GetNode 节点不应该被跳过）
-            # 可能通过 type、class_type 或其他属性识别
-            is_getnode = False
-            if node_type:
-                is_getnode = "GetNode" in str(node_type)
-            # 也检查 class_type（如果存在）
-            if not is_getnode and "class_type" in node:
-                is_getnode = "GetNode" in str(node.get("class_type", ""))
-            # 检查 properties 中是否有标识（某些情况下可能通过其他方式标识）
-            if not is_getnode:
-                properties = node.get("properties", {})
-                # 某些 GetNode 节点可能通过特定属性标识，但这里主要依赖 type/class_type
-                pass
-            
-            if not is_getnode and (node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note"))):
+            if node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note")):
                 logger.info(f"跳过 Note 节点 {node_id}（注释节点，不参与执行）")
+                continue
+            
+            # 跳过 GetNode 和 SetNode 节点（它们只是辅助节点，已在 links_map 中解析到实际源节点）
+            is_getnode = "GetNode" in str(node_type)
+            is_setnode = node_type == "SetNode"
+            if is_getnode:
+                logger.info(f"跳过 GetNode 节点 {node_id}（已在 links_map 中解析到实际源节点）")
+                continue
+            if is_setnode:
+                logger.info(f"跳过 SetNode 节点 {node_id}（已在 links_map 中解析到实际源节点）")
                 continue
             
             # 创建符合 ComfyUI API 格式的节点对象
@@ -773,23 +865,6 @@ def handler(job):
             if "inputs" not in converted_node:
                 converted_node["inputs"] = {}
             
-            # 记录 GetNode 节点的转换
-            node_class_type = converted_node.get("class_type", "")
-            if "GetNode" in str(node_class_type):
-                logger.info(f"转换 GetNode 节点 {node_id} (class_type: {node_class_type})")
-                # 确保 GetNode 节点有必要的字段
-                if "inputs" not in converted_node:
-                    converted_node["inputs"] = {}
-                # GetNode 节点可能需要特殊的 inputs 配置
-                # 根据 ComfyUI API，GetNode 节点通常不需要 inputs，但需要确保字段存在
-                if "widgets_values" in converted_node and converted_node["widgets_values"]:
-                    # GetNode 通常通过 widgets_values[0] 指定要获取的节点名称
-                    get_node_name = converted_node["widgets_values"][0] if isinstance(converted_node["widgets_values"], list) else None
-                    if get_node_name:
-                        logger.info(f"  GetNode {node_id} 尝试获取节点: {get_node_name}")
-                # 记录完整的节点信息用于调试
-                logger.info(f"  GetNode {node_id} 完整配置: class_type={converted_node.get('class_type')}, inputs={converted_node.get('inputs')}, widgets_values={converted_node.get('widgets_values')}")
-            
             prompt[node_id] = converted_node
         
         # 验证所有被引用的节点是否都存在
@@ -836,33 +911,15 @@ def handler(job):
                 else:
                     logger.warning(f"    节点 {missing_node_id} 不在原始 workflow 中，可能是错误的引用")
                 
-                # 对于 GetNode 节点，如果引用的节点不存在，尝试修复
-                if "GetNode" in str(node_class_type):
-                    logger.warning(f"  GetNode 节点 {node_id_check} 引用的节点 {missing_node_id} 不存在")
-                    # 检查是否有其他节点可以提供相同的值
-                    # 例如，如果 GetNode 尝试获取 "gen_width"，查找是否有设置宽度的节点
-                    widgets_values = prompt[node_id_check].get("widgets_values", [])
-                    if widgets_values and len(widgets_values) > 0:
-                        get_node_name = widgets_values[0] if isinstance(widgets_values, list) else None
-                        if get_node_name:
-                            logger.warning(f"  GetNode {node_id_check} 尝试获取 '{get_node_name}'，但节点 {missing_node_id} 不存在")
-                            # 尝试查找是否有其他节点可以提供这个值
-                            # 例如，如果 get_node_name 是 "gen_width"，查找是否有设置宽度的节点
-                            if "width" in get_node_name.lower() or "gen_width" in get_node_name.lower():
-                                # 查找是否有设置宽度的节点（如节点235或186）
-                                for alt_node_id in ["235", "186"]:
-                                    if alt_node_id in prompt:
-                                        logger.info(f"  找到替代节点 {alt_node_id}，尝试修复 GetNode {node_id_check}")
-                                        # 更新引用
-                                        prompt[node_id_check]["inputs"][input_name] = [alt_node_id, 0]
-                                        break
+                # 注意：GetNode 和 SetNode 节点已被跳过，它们的引用已在 links_map 中解析
+                # 如果仍然有缺失的节点引用，可能是其他类型的节点
         
-        # 检查是否有 GetNode 节点本身不存在（节点 176 可能是这种情况）
-        # 如果发现丢失的 GetNode 节点，尝试重新转换并添加
+        # 检查是否有 GetNode 或 SetNode 节点被跳过（这是正常的，因为它们已在 links_map 中解析）
+        skipped_getnodes = []
+        skipped_setnodes = []
         for node_id_check in all_node_ids:
             node_id_str = str(node_id_check)
             if node_id_str not in prompt and node_id_str not in logic_node_values:
-                # 查找原始节点信息
                 original_node = None
                 for node in workflow_data["nodes"]:
                     if str(node["id"]) == node_id_str:
@@ -870,75 +927,15 @@ def handler(job):
                         break
                 if original_node:
                     original_type = original_node.get("type", "")
-                    # 检查是否是 GetNode 节点（通过 type 或 class_type 字段）
-                    is_getnode = "GetNode" in str(original_type)
-                    # 也检查 properties 或其他可能标识 GetNode 的字段
-                    if not is_getnode:
-                        properties = original_node.get("properties", {})
-                        if "cnr_id" in properties:
-                            # 某些节点可能通过 cnr_id 标识，但这里主要关注 GetNode
-                            pass
-                    
-                    if is_getnode:
-                        logger.error(f"❌ 严重错误: GetNode 节点 {node_id_str} 在转换时被跳过或丢失！")
-                        logger.error(f"  原始节点类型: {original_type}")
-                        logger.error(f"  这会导致 ComfyUI 报错: 'Cannot execute because node GetNode does not exist. Node ID '#{node_id_str}'")
-                        # 尝试重新转换并添加这个节点
-                        logger.warning(f"  尝试重新添加节点 {node_id_str}...")
-                        try:
-                            # 重新转换节点（复用之前的转换逻辑）
-                            converted_node = {}
-                            for key, value in original_node.items():
-                                if key != "id":
-                                    if key == "inputs":
-                                        # 简化处理：直接复制 inputs（如果是数组格式，需要转换）
-                                        if isinstance(value, list):
-                                            converted_inputs = {}
-                                            for input_item in value:
-                                                if isinstance(input_item, dict) and "name" in input_item:
-                                                    input_name = input_item["name"]
-                                                    if "link" in input_item and input_item["link"] is not None:
-                                                        link_id = input_item["link"]
-                                                        if link_id in links_map:
-                                                            source_node_id, source_output_index = links_map[link_id]
-                                                            if source_node_id not in logic_node_values:
-                                                                converted_inputs[input_name] = [str(source_node_id), source_output_index]
-                                                            else:
-                                                                converted_inputs[input_name] = logic_node_values[source_node_id]
-                                                    elif "value" in input_item:
-                                                        converted_inputs[input_name] = input_item["value"]
-                                            converted_node["inputs"] = converted_inputs
-                                        else:
-                                            converted_node["inputs"] = value
-                                    else:
-                                        converted_node[key] = value
-                            
-                            # 设置 class_type
-                            if "type" in converted_node:
-                                node_type = converted_node["type"]
-                                if "GetNode" in str(node_type):
-                                    if "|" in str(node_type):
-                                        # 已经包含命名空间，直接使用
-                                        converted_node["class_type"] = node_type
-                                    else:
-                                        # 使用从 ComfyUI 获取的实际名称
-                                        converted_node["class_type"] = getnode_class_name
-                                else:
-                                    converted_node["class_type"] = node_type
-                            elif "class_type" not in converted_node:
-                                # 如果没有 type，使用从 ComfyUI 获取的实际名称
-                                converted_node["class_type"] = getnode_class_name if "GetNode" in str(original_type) else (original_type if original_type else "GetNode")
-                            
-                            # 确保 inputs 存在
-                            if "inputs" not in converted_node:
-                                converted_node["inputs"] = {}
-                            
-                            # 添加到 prompt
-                            prompt[node_id_str] = converted_node
-                            logger.info(f"✅ 成功重新添加 GetNode 节点 {node_id_str}")
-                        except Exception as e:
-                            logger.error(f"❌ 重新添加节点 {node_id_str} 失败: {e}")
-                            logger.error(f"  节点数据: {json.dumps(original_node, indent=2, ensure_ascii=False)[:500]}")
+                    if "GetNode" in str(original_type):
+                        skipped_getnodes.append(node_id_str)
+                    elif original_type == "SetNode":
+                        skipped_setnodes.append(node_id_str)
+        
+        if skipped_getnodes:
+            logger.info(f"已跳过 {len(skipped_getnodes)} 个 GetNode 节点（已在 links_map 中解析）: {skipped_getnodes}")
+        if skipped_setnodes:
+            logger.info(f"已跳过 {len(skipped_setnodes)} 个 SetNode 节点（已在 links_map 中解析）: {skipped_setnodes}")
         
         # 记录所有 GetNode 节点
         getnode_nodes = []
