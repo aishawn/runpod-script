@@ -531,10 +531,10 @@ def handler(job):
     lora_pairs = job_input.get("lora_pairs", [])
     
     # 최대 4개 LoRA까지 지원
-    lora_count = min(len(lora_pairs), 4)
-    if lora_count > len(lora_pairs):
+    if len(lora_pairs) > 4:
         logger.warning(f"LoRA 개수가 {len(lora_pairs)}개입니다. 최대 4개까지만 지원됩니다. 처음 4개만 사용합니다.")
         lora_pairs = lora_pairs[:4]
+    lora_count = len(lora_pairs)
     
     # 首先，确保 MEGA/AIO 模型文件在 checkpoints 目录中（如果存在）
     # 这样 CheckpointLoaderSimple 就能找到模型
@@ -977,7 +977,7 @@ def handler(job):
             source_node_id_str = str(source_node_id)
             # 如果源节点不是 logic 节点，且不在 prompt 中，但在 all_node_ids 中，说明被错误跳过了
             if source_node_id_str not in prompt and source_node_id_str not in logic_node_values:
-                if source_node_id_str in all_node_ids:
+                if 'all_node_ids' in locals() and source_node_id_str in all_node_ids:
                     # 查找引用这个节点的目标节点
                     for node_id_check, node_data in prompt.items():
                         if "inputs" in node_data:
@@ -1614,8 +1614,8 @@ def handler(job):
         else:
             # 自动计算：对于短视频使用更小的值
             if length < 50:
-                # 短视频：最多 30% 或 0，取较小值
-                context_overlap = min(0, max(1, int(length * 0.3)))
+                # 短视频：最多 30%，但至少为 0
+                context_overlap = max(0, int(length * 0.3))
             else:
                 # 长视频：最多 60% 或 48，取较小值
                 context_overlap = min(48, max(0, int(length * 0.6)))
