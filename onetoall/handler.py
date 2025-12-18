@@ -679,8 +679,10 @@ def handler(job):
         
         # 建立 link_id 到 [node_id, output_index] 的映射
         # 对于指向 GetNode 的 link，需要解析到对应的 SetNode，然后再解析到实际源节点
+        # 对于指向 Reroute 的 link，需要递归解析到它的输入源节点
         links_map = {}
         if "links" in workflow_data:
+            # 第一遍：建立所有 links 的初始映射（不包括 Reroute 的解析）
             for link in workflow_data["links"]:
                 # link 格式: [link_id, source_node_id, source_output_index, target_node_id, target_input_index, type]
                 if len(link) >= 6:
@@ -695,23 +697,68 @@ def handler(job):
                     resolved_source_output_index = source_output_index
                     
                     source_node = all_nodes_map.get(source_node_id)
-                    if source_node and source_node.get("type") == "GetNode":
-                        # GetNode 通过 widgets_values[0] 获取 SetNode 的名称
-                        widgets_values = source_node.get("widgets_values", [])
-                        if isinstance(widgets_values, list) and len(widgets_values) > 0:
-                            getnode_name = widgets_values[0]
-                            # 在 setnode_source_map 中查找
-                            if getnode_name in setnode_source_map:
-                                resolved_source_node_id, resolved_source_output_index = setnode_source_map[getnode_name]
-                                logger.info(f"Link {link_id} 通过 GetNode {source_node_id} ({getnode_name}) 解析到源节点 {resolved_source_node_id}:{resolved_source_output_index}")
+                    if source_node:
+                        source_node_type = source_node.get("type", "")
+                        if source_node_type == "GetNode":
+                            # GetNode 通过 widgets_values[0] 获取 SetNode 的名称
+                            widgets_values = source_node.get("widgets_values", [])
+                            if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                                getnode_name = widgets_values[0]
+                                # 在 setnode_source_map 中查找
+                                if getnode_name in setnode_source_map:
+                                    resolved_source_node_id, resolved_source_output_index = setnode_source_map[getnode_name]
+                                    logger.info(f"Link {link_id} 通过 GetNode {source_node_id} ({getnode_name}) 解析到源节点 {resolved_source_node_id}:{resolved_source_output_index}")
+                                else:
+                                    logger.warning(f"Link {link_id} 的 GetNode {source_node_id} ({getnode_name}) 无法找到对应的 SetNode，将保持原链接")
                             else:
-                                logger.warning(f"Link {link_id} 的 GetNode {source_node_id} ({getnode_name}) 无法找到对应的 SetNode，将保持原链接")
-                                # 如果无法解析，保持原链接（可能会导致错误，但至少不会丢失链接）
-                        else:
-                            logger.warning(f"Link {link_id} 的 GetNode {source_node_id} 没有 widgets_values，将保持原链接")
+                                logger.warning(f"Link {link_id} 的 GetNode {source_node_id} 没有 widgets_values，将保持原链接")
                     
                     # 存储映射：link_id -> [resolved_source_node_id, resolved_source_output_index]
                     links_map[link_id] = [resolved_source_node_id, resolved_source_output_index]
+            
+            # 第二遍：处理 Reroute 节点的解析（需要递归解析）
+            def resolve_reroute_source(node_id, visited=None):
+                """递归解析 Reroute 节点的源节点"""
+                if visited is None:
+                    visited = set()
+                if node_id in visited:
+                    return None
+                visited.add(node_id)
+                
+                reroute_node = all_nodes_map.get(node_id)
+                if not reroute_node or reroute_node.get("type") != "Reroute":
+                    return None
+                
+                # Reroute 只有一个输入，通过 inputs[0].link 获取
+                if "inputs" in reroute_node and isinstance(reroute_node["inputs"], list) and len(reroute_node["inputs"]) > 0:
+                    reroute_input = reroute_node["inputs"][0]
+                    if isinstance(reroute_input, dict) and "link" in reroute_input:
+                        reroute_input_link = reroute_input["link"]
+                        if reroute_input_link in links_map:
+                            input_source_node_id, input_source_output_index = links_map[reroute_input_link]
+                            # 检查输入源节点是否也是 Reroute，如果是则递归解析
+                            input_source_node = all_nodes_map.get(str(input_source_node_id))
+                            if input_source_node and input_source_node.get("type") == "Reroute":
+                                return resolve_reroute_source(str(input_source_node_id), visited)
+                            else:
+                                return [input_source_node_id, input_source_output_index]
+                return None
+            
+            # 更新所有指向 Reroute 的 links
+            for link in workflow_data["links"]:
+                if len(link) >= 6:
+                    link_id = link[0]
+                    source_node_id = str(link[1])
+                    source_output_index = link[2]
+                    
+                    source_node = all_nodes_map.get(source_node_id)
+                    if source_node and source_node.get("type") == "Reroute":
+                        resolved = resolve_reroute_source(source_node_id)
+                        if resolved:
+                            links_map[link_id] = resolved
+                            logger.info(f"Link {link_id} 通过 Reroute {source_node_id} 解析到源节点 {resolved[0]}:{resolved[1]}")
+                        else:
+                            logger.warning(f"Link {link_id} 的 Reroute {source_node_id} 无法解析到有效源节点，将保持原链接")
         
         # 记录所有节点ID，用于后续验证
         all_node_ids = set()
@@ -728,14 +775,14 @@ def handler(job):
                 logger.info(f"跳过 logic 节点 {node_id}，将直接内联其值")
                 continue
             
-            # 跳过 Note 节点（注释节点，ComfyUI API 不支持）
+            # 跳过 Note 和 MarkdownNote 节点（注释节点，ComfyUI API 不支持）
             node_type = node.get("type", "")
-            if node_type == "Note" or (isinstance(node_type, str) and node_type.startswith("Note")):
-                logger.info(f"跳过 Note 节点 {node_id}（注释节点，不参与执行）")
+            if node_type == "Note" or node_type == "MarkdownNote" or (isinstance(node_type, str) and (node_type.startswith("Note") or node_type.startswith("Markdown"))):
+                logger.info(f"跳过 {node_type} 节点 {node_id}（注释节点，不参与执行）")
                 continue
             
             # 跳过 GetNode 和 SetNode 节点（它们只是辅助节点，已在 links_map 中解析到实际源节点）
-            is_getnode = "GetNode" in str(node_type)
+                is_getnode = "GetNode" in str(node_type)
             is_setnode = node_type == "SetNode"
             if is_getnode:
                 logger.info(f"跳过 GetNode 节点 {node_id}（已在 links_map 中解析到实际源节点）")
@@ -749,6 +796,21 @@ def handler(job):
             # 在建立 links_map 时，PrimitiveNode 的值会直接传递到目标节点的 inputs 中
             if node_type == "PrimitiveNode":
                 logger.info(f"跳过 PrimitiveNode 节点 {node_id}（原始值节点，值已通过链接传递）")
+                continue
+            
+            # 跳过常量节点（FloatConstant, IntConstant, StringConstant 等）
+            # 这些节点用于定义常量值，值会通过链接传递到目标节点
+            # 在转换 inputs 时，这些节点的值会直接内联到目标节点的 inputs 中
+            constant_node_types = ["FloatConstant", "IntConstant", "StringConstant", "BooleanConstant"]
+            if node_type in constant_node_types:
+                logger.info(f"跳过 {node_type} 节点 {node_id}（常量节点，值已通过链接传递）")
+                continue
+            
+            # 跳过 Reroute 节点（路由节点，ComfyUI API 不支持）
+            # Reroute 节点用于重新路由连接，值会直接传递
+            # 在建立 links_map 时，Reroute 节点会解析到它的输入源节点
+            if node_type == "Reroute":
+                logger.info(f"跳过 Reroute 节点 {node_id}（路由节点，已在 links_map 中解析到输入源节点）")
                 continue
             
             # 创建符合 ComfyUI API 格式的节点对象
@@ -792,20 +854,24 @@ def handler(job):
                                                 converted_inputs[input_name] = logic_node_values[source_node_id]
                                                 logger.info(f"节点{node_id}.{input_name}: 内联 logic 节点{source_node_id}的值 = {logic_node_values[source_node_id]}")
                                             else:
-                                                # 检查源节点是否是 PrimitiveNode（已被跳过）
+                                                # 检查源节点是否是常量节点（已被跳过）
                                                 source_node = all_nodes_map.get(str(source_node_id))
-                                                if source_node and source_node.get("type") == "PrimitiveNode":
-                                                    # PrimitiveNode 的值存储在 widgets_values[0] 中
-                                                    prim_widgets = source_node.get("widgets_values", [])
-                                                    if isinstance(prim_widgets, list) and len(prim_widgets) > 0:
-                                                        prim_value = prim_widgets[0]
-                                                        converted_inputs[input_name] = prim_value
-                                                        logger.info(f"节点{node_id}.{input_name}: 内联 PrimitiveNode {source_node_id}的值 = {prim_value}")
+                                                if source_node:
+                                                    source_node_type = source_node.get("type", "")
+                                                    # PrimitiveNode 和常量节点（FloatConstant, IntConstant 等）的值存储在 widgets_values[0] 中
+                                                    if source_node_type == "PrimitiveNode" or source_node_type in ["FloatConstant", "IntConstant", "StringConstant", "BooleanConstant"]:
+                                                        const_widgets = source_node.get("widgets_values", [])
+                                                        if isinstance(const_widgets, list) and len(const_widgets) > 0:
+                                                            const_value = const_widgets[0]
+                                                            converted_inputs[input_name] = const_value
+                                                            logger.info(f"节点{node_id}.{input_name}: 内联 {source_node_type} {source_node_id}的值 = {const_value}")
+                                                        else:
+                                                            # 如果无法获取值，保持原链接（可能会导致错误）
+                                                            converted_inputs[input_name] = [source_node_id, source_output_index]
                                                     else:
-                                                        # 如果无法获取值，保持原链接（可能会导致错误）
                                                         converted_inputs[input_name] = [source_node_id, source_output_index]
-                                                else:
-                                                    converted_inputs[input_name] = [source_node_id, source_output_index]
+                                            else:
+                                                converted_inputs[input_name] = [source_node_id, source_output_index]
                                         else:
                                             # 如果找不到 link，保持原值或设为 None
                                             converted_inputs[input_name] = None
@@ -1462,7 +1528,7 @@ def handler(job):
                         current_text = node["inputs"].get("text", "")
                         is_negative = any(word in current_text.lower() for word in ["bad", "worst", "low quality", "blurry", "static", "模糊", "低质量", "最差"])
                         if not is_negative:
-                            node["inputs"]["text"] = positive_prompt
+                        node["inputs"]["text"] = positive_prompt
                             logger.info(f"节点{node_id} (CLIPTextEncode - 正面): {positive_prompt[:50]}...")
                         elif negative_prompt:
                             node["inputs"]["text"] = negative_prompt
@@ -1472,7 +1538,7 @@ def handler(job):
                         current_text = str(node["widgets_values"][0])
                         is_negative = any(word in current_text.lower() for word in ["bad", "worst", "low quality", "blurry", "static", "模糊", "低质量", "最差"])
                         if not is_negative:
-                            node["widgets_values"][0] = positive_prompt
+                        node["widgets_values"][0] = positive_prompt
                             logger.info(f"节点{node_id} (CLIPTextEncode - 正面): {positive_prompt[:50]}...")
                         elif negative_prompt:
                             node["widgets_values"][0] = negative_prompt
