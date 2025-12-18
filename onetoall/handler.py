@@ -744,6 +744,13 @@ def handler(job):
                 logger.info(f"跳过 SetNode 节点 {node_id}（已在 links_map 中解析到实际源节点）")
                 continue
             
+            # 跳过 PrimitiveNode 节点（comfyui-logic 插件节点，可能未安装）
+            # PrimitiveNode 用于定义原始值（数字、字符串等），值会通过链接传递到目标节点
+            # 在建立 links_map 时，PrimitiveNode 的值会直接传递到目标节点的 inputs 中
+            if node_type == "PrimitiveNode":
+                logger.info(f"跳过 PrimitiveNode 节点 {node_id}（原始值节点，值已通过链接传递）")
+                continue
+            
             # 创建符合 ComfyUI API 格式的节点对象
             converted_node = {}
             # 复制所有字段
@@ -785,7 +792,20 @@ def handler(job):
                                                 converted_inputs[input_name] = logic_node_values[source_node_id]
                                                 logger.info(f"节点{node_id}.{input_name}: 内联 logic 节点{source_node_id}的值 = {logic_node_values[source_node_id]}")
                                             else:
-                                                converted_inputs[input_name] = [source_node_id, source_output_index]
+                                                # 检查源节点是否是 PrimitiveNode（已被跳过）
+                                                source_node = all_nodes_map.get(str(source_node_id))
+                                                if source_node and source_node.get("type") == "PrimitiveNode":
+                                                    # PrimitiveNode 的值存储在 widgets_values[0] 中
+                                                    prim_widgets = source_node.get("widgets_values", [])
+                                                    if isinstance(prim_widgets, list) and len(prim_widgets) > 0:
+                                                        prim_value = prim_widgets[0]
+                                                        converted_inputs[input_name] = prim_value
+                                                        logger.info(f"节点{node_id}.{input_name}: 内联 PrimitiveNode {source_node_id}的值 = {prim_value}")
+                                                    else:
+                                                        # 如果无法获取值，保持原链接（可能会导致错误）
+                                                        converted_inputs[input_name] = [source_node_id, source_output_index]
+                                                else:
+                                                    converted_inputs[input_name] = [source_node_id, source_output_index]
                                         else:
                                             # 如果找不到 link，保持原值或设为 None
                                             converted_inputs[input_name] = None
