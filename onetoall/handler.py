@@ -866,13 +866,34 @@ def handler(job):
                                                             converted_inputs[input_name] = const_value
                                                             logger.info(f"节点{node_id}.{input_name}: 内联 {source_node_type} {source_node_id}的值 = {const_value}")
                                                         else:
-                                                            # 如果无法获取值，保持原链接（可能会导致错误）
-                                                            converted_inputs[input_name] = [source_node_id, source_output_index]
+                                                            # 如果无法获取值，记录警告并设为 None（避免引用不存在的节点）
+                                                            logger.warning(f"节点{node_id}.{input_name}: 无法从 {source_node_type} {source_node_id} 获取值，设为 None")
+                                                            converted_inputs[input_name] = None
                                                     else:
-                                                        converted_inputs[input_name] = [source_node_id, source_output_index]
+                                                        # 检查源节点是否会被跳过（不在 prompt 中）
+                                                        if str(source_node_id) not in prompt:
+                                                            # 源节点不在 prompt 中，可能是被跳过的节点，记录警告
+                                                            logger.warning(f"节点{node_id}.{input_name}: 引用的源节点 {source_node_id} ({source_node_type}) 不在 prompt 中，可能已被跳过")
+                                                            # 尝试检查是否是被跳过的节点类型
+                                                            skipped_types = ["Note", "MarkdownNote", "GetNode", "SetNode", "Reroute"]
+                                                            if source_node_type in skipped_types or "GetNode" in str(source_node_type):
+                                                                logger.warning(f"节点{node_id}.{input_name}: 源节点 {source_node_id} 是被跳过的节点类型 {source_node_type}，设为 None")
+                                                                converted_inputs[input_name] = None
+                                                            else:
+                                                                # 如果不是被跳过的节点类型，保留链接（可能是其他问题）
+                                                                converted_inputs[input_name] = [source_node_id, source_output_index]
+                                                        else:
+                                                            # 源节点在 prompt 中，正常使用链接
+                                                            converted_inputs[input_name] = [source_node_id, source_output_index]
                                                 else:
-                                                    # 如果 source_node 不存在，直接使用链接
-                                                    converted_inputs[input_name] = [source_node_id, source_output_index]
+                                                    # 如果 source_node 不在 all_nodes_map 中，检查是否在 prompt 中
+                                                    if str(source_node_id) not in prompt:
+                                                        # 源节点既不在 all_nodes_map 也不在 prompt 中，设为 None 避免错误
+                                                        logger.warning(f"节点{node_id}.{input_name}: 引用的源节点 {source_node_id} 不存在（不在 all_nodes_map 和 prompt 中），设为 None")
+                                                        converted_inputs[input_name] = None
+                                                    else:
+                                                        # 源节点在 prompt 中但不在 all_nodes_map 中（可能是新添加的节点），正常使用链接
+                                                        converted_inputs[input_name] = [source_node_id, source_output_index]
                                         else:
                                             # 如果找不到 link，保持原值或设为 None
                                             converted_inputs[input_name] = None
