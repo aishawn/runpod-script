@@ -513,8 +513,11 @@ def handler(job):
         
         # 首先收集所有有效节点 ID（排除 Note、GetNode、SetNode 节点）
         valid_node_ids = set()
+        # 同时建立节点 ID 到节点对象的映射（包括所有节点，用于解析 GetNode/SetNode）
+        all_nodes_map = {}
         for node in workflow_data["nodes"]:
             node_id = str(node["id"]).lstrip('#')  # 移除可能的 '#' 前缀
+            all_nodes_map[node_id] = node
             node_type = node.get("type", "")
             # 跳过不支持的节点类型
             if should_skip_node(node_type):
@@ -522,8 +525,79 @@ def handler(job):
                 continue
             valid_node_ids.add(node_id)
         
+        # 建立 SetNode 名称到实际源节点的映射
+        # SetNode 通过 widgets_values[0] 存储名称，通过输入 link 获取值
+        # 需要递归解析，因为 SetNode 的源节点可能也是 GetNode/SetNode
+        setnode_source_map = {}  # {setnode_name: [source_node_id, source_output_index]}
+        
+        def resolve_setnode_source(setnode_node_id, visited=None):
+            """递归解析 SetNode 的源节点"""
+            if visited is None:
+                visited = set()
+            if setnode_node_id in visited:
+                return None  # 防止循环引用
+            visited.add(setnode_node_id)
+            
+            node = all_nodes_map.get(setnode_node_id)
+            if not node or node.get("type") != "SetNode":
+                return None
+            
+            # 找到 SetNode 的输入 link
+            inputs = node.get("inputs", [])
+            if isinstance(inputs, list):
+                for input_item in inputs:
+                    if isinstance(input_item, dict) and "link" in input_item:
+                        link_id = input_item["link"]
+                        # 在 links 中找到这个 link
+                        if "links" in workflow_data:
+                            for link in workflow_data["links"]:
+                                if len(link) >= 6 and link[0] == link_id:
+                                    source_node_id = str(link[1]).lstrip('#')
+                                    source_output_index = link[2]
+                                    
+                                    # 如果源节点是有效节点，直接返回
+                                    if source_node_id in valid_node_ids:
+                                        return [source_node_id, source_output_index]
+                                    
+                                    # 如果源节点是 GetNode，递归解析
+                                    source_node = all_nodes_map.get(source_node_id)
+                                    if source_node and source_node.get("type") == "GetNode":
+                                        widgets_values = source_node.get("widgets_values", [])
+                                        if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                                            getnode_name = widgets_values[0]
+                                            # 查找对应的 SetNode
+                                            for sn_id, sn_node in all_nodes_map.items():
+                                                if sn_node.get("type") == "SetNode":
+                                                    sn_widgets = sn_node.get("widgets_values", [])
+                                                    if isinstance(sn_widgets, list) and len(sn_widgets) > 0 and sn_widgets[0] == getnode_name:
+                                                        result = resolve_setnode_source(sn_id, visited)
+                                                        if result:
+                                                            return result
+                                    
+                                    # 如果源节点是 SetNode，递归解析
+                                    if source_node and source_node.get("type") == "SetNode":
+                                        result = resolve_setnode_source(source_node_id, visited)
+                                        if result:
+                                            return result
+                                    
+                                    break
+            return None
+        
+        # 建立所有 SetNode 的映射
+        for node_id, node in all_nodes_map.items():
+            if node.get("type") == "SetNode":
+                widgets_values = node.get("widgets_values", [])
+                if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                    setnode_name = widgets_values[0]
+                    resolved_source = resolve_setnode_source(node_id)
+                    if resolved_source:
+                        setnode_source_map[setnode_name] = resolved_source
+                        logger.info(f"SetNode {node_id} ({setnode_name}) 映射到源节点 {resolved_source[0]}:{resolved_source[1]}")
+                    else:
+                        logger.warning(f"SetNode {node_id} ({setnode_name}) 无法解析到有效源节点")
+        
         # 建立 link_id 到 [node_id, output_index] 的映射
-        # 只包含指向有效节点的 link（源节点和目标节点都必须是有效节点）
+        # 对于指向 GetNode/SetNode 的 link，需要解析到实际源节点
         links_map = {}
         if "links" in workflow_data:
             for link in workflow_data["links"]:
@@ -534,12 +608,37 @@ def handler(job):
                     source_output_index = link[2]
                     target_node_id = str(link[3]).lstrip('#')  # 移除可能的 '#' 前缀
                     target_input_index = link[4]
-                    # 只存储源节点和目标节点都在有效节点中的 link
-                    if source_node_id in valid_node_ids and target_node_id in valid_node_ids:
-                        links_map[link_id] = [source_node_id, source_output_index]
+                    
+                    # 如果源节点是 GetNode 或 SetNode，需要解析到实际源节点
+                    resolved_source_node_id = source_node_id
+                    resolved_source_output_index = source_output_index
+                    
+                    if source_node_id in all_nodes_map:
+                        source_node = all_nodes_map[source_node_id]
+                        if source_node.get("type") == "GetNode":
+                            # GetNode 通过 widgets_values[0] 获取 SetNode 的名称
+                            widgets_values = source_node.get("widgets_values", [])
+                            if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                                getnode_name = widgets_values[0]
+                                # 在 setnode_source_map 中查找
+                                if getnode_name in setnode_source_map:
+                                    resolved_source_node_id, resolved_source_output_index = setnode_source_map[getnode_name]
+                                    logger.info(f"Link {link_id} 通过 GetNode {source_node_id} ({getnode_name}) 解析到源节点 {resolved_source_node_id}:{resolved_source_output_index}")
+                        elif source_node.get("type") == "SetNode":
+                            # SetNode 通过 widgets_values[0] 存储名称，直接查找映射
+                            widgets_values = source_node.get("widgets_values", [])
+                            if isinstance(widgets_values, list) and len(widgets_values) > 0:
+                                setnode_name = widgets_values[0]
+                                if setnode_name in setnode_source_map:
+                                    resolved_source_node_id, resolved_source_output_index = setnode_source_map[setnode_name]
+                                    logger.info(f"Link {link_id} 通过 SetNode {source_node_id} ({setnode_name}) 解析到源节点 {resolved_source_node_id}:{resolved_source_output_index}")
+                    
+                    # 只存储源节点和目标节点都在有效节点中的 link（或已解析的源节点）
+                    if resolved_source_node_id in valid_node_ids and target_node_id in valid_node_ids:
+                        links_map[link_id] = [resolved_source_node_id, resolved_source_output_index]
                     else:
-                        if source_node_id not in valid_node_ids:
-                            logger.warning(f"跳过 link {link_id}：源节点 {source_node_id} 不存在（可能是被跳过的辅助节点）")
+                        if resolved_source_node_id not in valid_node_ids:
+                            logger.warning(f"跳过 link {link_id}：源节点 {resolved_source_node_id} 不存在（可能是被跳过的辅助节点）")
                         if target_node_id not in valid_node_ids:
                             logger.warning(f"跳过 link {link_id}：目标节点 {target_node_id} 不存在（可能是被跳过的辅助节点）")
         
