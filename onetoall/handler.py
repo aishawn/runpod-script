@@ -948,15 +948,29 @@ def handler(job):
                     # 如果包含管道符，直接使用
                     converted_node["class_type"] = node_type
                 else:
-                    # 如果不包含管道符，检查是否有properties中的cnr_id
-                    properties = converted_node.get("properties", {})
-                    cnr_id = properties.get("cnr_id")
-                    if cnr_id:
-                        # 尝试使用 "节点类型|插件ID" 格式
-                        # 但ComfyUI API通常只需要节点类型名称，不需要插件ID
-                        converted_node["class_type"] = node_type
+                    # 检查是否是 Subgraph 节点（UUID 格式的节点类型通常是 Subgraph）
+                    # Subgraph 节点的类型是 UUID，但在 definitions.subgraphs 中定义
+                    is_subgraph = False
+                    if "definitions" in workflow_data and "subgraphs" in workflow_data["definitions"]:
+                        for subgraph in workflow_data["definitions"]["subgraphs"]:
+                            if subgraph.get("id") == node_type:
+                                is_subgraph = True
+                                logger.info(f"节点 {node_id} 是 Subgraph 节点 (ID: {node_type})")
+                                break
+                    
+                    if is_subgraph:
+                        # Subgraph 节点的 class_type 应该是 "Subgraph"
+                        converted_node["class_type"] = "Subgraph"
                     else:
-                        converted_node["class_type"] = node_type
+                        # 如果不包含管道符，检查是否有properties中的cnr_id
+                        properties = converted_node.get("properties", {})
+                        cnr_id = properties.get("cnr_id")
+                        if cnr_id:
+                            # 尝试使用 "节点类型|插件ID" 格式
+                            # 但ComfyUI API通常只需要节点类型名称，不需要插件ID
+                            converted_node["class_type"] = node_type
+                        else:
+                            converted_node["class_type"] = node_type
                 # 保留 type 字段（某些情况下可能需要）
             # 确保节点有 class_type 字段（ComfyUI API 必需）
             if "class_type" not in converted_node:
