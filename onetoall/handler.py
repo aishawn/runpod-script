@@ -959,8 +959,12 @@ def handler(job):
                                 break
                     
                     if is_subgraph:
-                        # Subgraph 节点的 class_type 应该是 "Subgraph"
-                        converted_node["class_type"] = "Subgraph"
+                        # Subgraph 节点的 class_type 使用原始 UUID
+                        # ComfyUI API 可能不支持 Subgraph，但使用原始 UUID 可能能工作
+                        # 如果不行，可能需要跳过 Subgraph 节点或展开它
+                        converted_node["class_type"] = node_type
+                        logger.warning(f"节点 {node_id} 是 Subgraph 节点，使用原始 UUID 作为 class_type: {node_type}")
+                        logger.warning(f"如果 ComfyUI API 不支持此 Subgraph，可能需要跳过或展开该节点")
                     else:
                         # 如果不包含管道符，检查是否有properties中的cnr_id
                         properties = converted_node.get("properties", {})
