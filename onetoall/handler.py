@@ -798,10 +798,10 @@ def handler(job):
                 logger.info(f"跳过 PrimitiveNode 节点 {node_id}（原始值节点，值已通过链接传递）")
                 continue
             
-            # 跳过常量节点（FloatConstant, IntConstant, StringConstant 等）
+            # 跳过常量节点（FloatConstant, IntConstant, INTConstant, StringConstant 等）
             # 这些节点用于定义常量值，值会通过链接传递到目标节点
             # 在转换 inputs 时，这些节点的值会直接内联到目标节点的 inputs 中
-            constant_node_types = ["FloatConstant", "IntConstant", "StringConstant", "BooleanConstant"]
+            constant_node_types = ["FloatConstant", "IntConstant", "INTConstant", "StringConstant", "BooleanConstant"]
             if node_type in constant_node_types:
                 logger.info(f"跳过 {node_type} 节点 {node_id}（常量节点，值已通过链接传递）")
                 continue
@@ -858,8 +858,8 @@ def handler(job):
                                                 source_node = all_nodes_map.get(str(source_node_id))
                                                 if source_node:
                                                     source_node_type = source_node.get("type", "")
-                                                    # PrimitiveNode 和常量节点（FloatConstant, IntConstant 等）的值存储在 widgets_values[0] 中
-                                                    if source_node_type == "PrimitiveNode" or source_node_type in ["FloatConstant", "IntConstant", "StringConstant", "BooleanConstant"]:
+                                                    # PrimitiveNode 和常量节点（FloatConstant, IntConstant, INTConstant 等）的值存储在 widgets_values[0] 中
+                                                    if source_node_type == "PrimitiveNode" or source_node_type in ["FloatConstant", "IntConstant", "INTConstant", "StringConstant", "BooleanConstant"]:
                                                         const_widgets = source_node.get("widgets_values", [])
                                                         if isinstance(const_widgets, list) and len(const_widgets) > 0:
                                                             const_value = const_widgets[0]
