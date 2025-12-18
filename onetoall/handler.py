@@ -870,8 +870,9 @@ def handler(job):
                                                             converted_inputs[input_name] = [source_node_id, source_output_index]
                                                     else:
                                                         converted_inputs[input_name] = [source_node_id, source_output_index]
-                                            else:
-                                                converted_inputs[input_name] = [source_node_id, source_output_index]
+                                                else:
+                                                    # 如果 source_node 不存在，直接使用链接
+                                                    converted_inputs[input_name] = [source_node_id, source_output_index]
                                         else:
                                             # 如果找不到 link，保持原值或设为 None
                                             converted_inputs[input_name] = None
@@ -897,6 +898,11 @@ def handler(job):
                                             if widget_value is not None:
                                                 converted_inputs[input_name] = widget_value
                                         # 如果没有值，不设置（可能是可选输入）
+                        elif isinstance(value, dict):
+                            # 如果 inputs 已经是字典格式，直接使用
+                            converted_inputs = value.copy()
+                        # 如果 value 既不是列表也不是字典，converted_inputs 保持为空字典
+                        
                         converted_node["inputs"] = converted_inputs
                     else:
                         converted_node[key] = value
@@ -1528,7 +1534,7 @@ def handler(job):
                         current_text = node["inputs"].get("text", "")
                         is_negative = any(word in current_text.lower() for word in ["bad", "worst", "low quality", "blurry", "static", "模糊", "低质量", "最差"])
                         if not is_negative:
-                        node["inputs"]["text"] = positive_prompt
+                            node["inputs"]["text"] = positive_prompt
                             logger.info(f"节点{node_id} (CLIPTextEncode - 正面): {positive_prompt[:50]}...")
                         elif negative_prompt:
                             node["inputs"]["text"] = negative_prompt
@@ -1538,7 +1544,7 @@ def handler(job):
                         current_text = str(node["widgets_values"][0])
                         is_negative = any(word in current_text.lower() for word in ["bad", "worst", "low quality", "blurry", "static", "模糊", "低质量", "最差"])
                         if not is_negative:
-                        node["widgets_values"][0] = positive_prompt
+                            node["widgets_values"][0] = positive_prompt
                             logger.info(f"节点{node_id} (CLIPTextEncode - 正面): {positive_prompt[:50]}...")
                         elif negative_prompt:
                             node["widgets_values"][0] = negative_prompt

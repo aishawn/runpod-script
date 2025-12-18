@@ -543,7 +543,7 @@ def handler(job):
     
     # 최대 4개 LoRA까지 지원
     lora_count = min(len(lora_pairs), 4)
-    if lora_count > len(lora_pairs):
+    if len(lora_pairs) > 4:
         logger.warning(f"LoRA 개수가 {len(lora_pairs)}개입니다. 최대 4개까지만 지원됩니다. 처음 4개만 사용합니다.")
         lora_pairs = lora_pairs[:4]
     
@@ -784,6 +784,10 @@ def handler(job):
                                             if widget_value is not None:
                                                 converted_inputs[input_name] = widget_value
                                         # 如果没有值，不设置（可能是可选输入）
+                        elif isinstance(value, dict):
+                            # 如果 inputs 已经是字典格式，直接使用
+                            converted_inputs = value.copy()
+                        # 如果 value 既不是列表也不是字典，converted_inputs 保持为空字典
                         
                         # 如果 widgets_values 是字典，将所有 widget 值复制到 inputs 中
                         # 这对于 VHS_VideoCombine 等节点很重要，因为它们有很多 widget 参数
