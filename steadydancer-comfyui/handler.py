@@ -332,7 +332,7 @@ def handler(job):
             valid_node_ids.add(node_id)
         
         # 建立 link_id 到 [node_id, output_index] 的映射
-        # 只包含指向有效节点的 link
+        # 只包含源节点和目标节点都有效的 link
         links_map = {}
         if "links" in workflow_data:
             for link in workflow_data["links"]:
@@ -343,11 +343,14 @@ def handler(job):
                     source_output_index = link[2]
                     target_node_id = str(link[3]).lstrip('#')  # 移除可能的 '#' 前缀
                     target_input_index = link[4]
-                    # 只存储指向有效节点的 link
-                    if source_node_id in valid_node_ids:
+                    # 只存储源节点和目标节点都有效的 link
+                    if source_node_id in valid_node_ids and target_node_id in valid_node_ids:
                         links_map[link_id] = [source_node_id, source_output_index]
                     else:
-                        logger.warning(f"跳过 link {link_id}：源节点 {source_node_id} 不存在（可能是被跳过的 Note 节点）")
+                        if source_node_id not in valid_node_ids:
+                            logger.warning(f"跳过 link {link_id}：源节点 {source_node_id} 不存在（可能是被跳过的节点）")
+                        if target_node_id not in valid_node_ids:
+                            logger.warning(f"跳过 link {link_id}：目标节点 {target_node_id} 不存在（可能是被跳过的节点）")
         
         for node in workflow_data["nodes"]:
             node_id = str(node["id"]).lstrip('#')  # 确保节点 ID 不包含 '#' 前缀
