@@ -595,6 +595,13 @@ def handler(job):
                     # 存储映射：link_id -> [source_node_id, source_output_index]
                     links_map[link_id] = [source_node_id, source_output_index]
         
+        # 记录所有节点ID，用于后续验证
+        all_node_ids = set()
+        for node in workflow_data["nodes"]:
+            all_node_ids.add(str(node["id"]))
+        
+        logger.info(f"Workflow 中共有 {len(all_node_ids)} 个节点需要转换")
+        
         for node in workflow_data["nodes"]:
             node_id = str(node["id"])
             
@@ -703,7 +710,87 @@ def handler(job):
                     converted_node["class_type"] = converted_node["type"]
                 else:
                     logger.warning(f"节点 {node_id} 缺少 type 和 class_type 字段")
+            
+            # 记录 GetNode 节点的转换
+            node_class_type = converted_node.get("class_type", "")
+            if "GetNode" in str(node_class_type):
+                logger.info(f"转换 GetNode 节点 {node_id} (class_type: {node_class_type})")
+                # 确保 GetNode 节点有必要的字段
+                if "inputs" not in converted_node:
+                    converted_node["inputs"] = {}
+                if "widgets_values" in converted_node and converted_node["widgets_values"]:
+                    # GetNode 通常通过 widgets_values[0] 指定要获取的节点名称
+                    get_node_name = converted_node["widgets_values"][0] if isinstance(converted_node["widgets_values"], list) else None
+                    if get_node_name:
+                        logger.info(f"  GetNode {node_id} 尝试获取节点: {get_node_name}")
+            
             prompt[node_id] = converted_node
+        
+        # 验证所有被引用的节点是否都存在
+        missing_nodes = []
+        for node_id_check, node_data in prompt.items():
+            if "inputs" in node_data:
+                for input_name, input_value in node_data["inputs"].items():
+                    # 检查是否是节点引用格式 [node_id, output_index]
+                    if isinstance(input_value, list) and len(input_value) >= 2:
+                        referenced_node_id = str(input_value[0])
+                        if referenced_node_id not in prompt:
+                            # 检查该节点是否在原始 workflow 中
+                            was_in_workflow = referenced_node_id in all_node_ids if 'all_node_ids' in locals() else False
+                            missing_nodes.append((node_id_check, input_name, referenced_node_id, was_in_workflow))
+        
+        if missing_nodes:
+            logger.warning(f"发现 {len(missing_nodes)} 个缺失的节点引用:")
+            for missing_info in missing_nodes:
+                if len(missing_info) == 4:
+                    node_id_check, input_name, missing_node_id, was_in_workflow = missing_info
+                else:
+                    node_id_check, input_name, missing_node_id = missing_info[:3]
+                    was_in_workflow = False
+                
+                node_class_type = prompt.get(node_id_check, {}).get("class_type", "")
+                logger.warning(f"  节点 {node_id_check} ({node_class_type}).{input_name} 引用了不存在的节点 {missing_node_id}")
+                if was_in_workflow:
+                    logger.warning(f"    节点 {missing_node_id} 在原始 workflow 中存在，但在转换时被跳过或丢失")
+                else:
+                    logger.warning(f"    节点 {missing_node_id} 不在原始 workflow 中，可能是错误的引用")
+                
+                # 对于 GetNode 节点，如果引用的节点不存在，尝试修复
+                if "GetNode" in str(node_class_type):
+                    logger.warning(f"  GetNode 节点 {node_id_check} 引用的节点 {missing_node_id} 不存在")
+                    # 检查是否有其他节点可以提供相同的值
+                    # 例如，如果 GetNode 尝试获取 "gen_width"，查找是否有设置宽度的节点
+                    widgets_values = prompt[node_id_check].get("widgets_values", [])
+                    if widgets_values and len(widgets_values) > 0:
+                        get_node_name = widgets_values[0] if isinstance(widgets_values, list) else None
+                        if get_node_name:
+                            logger.warning(f"  GetNode {node_id_check} 尝试获取 '{get_node_name}'，但节点 {missing_node_id} 不存在")
+                            # 尝试查找是否有其他节点可以提供这个值
+                            # 例如，如果 get_node_name 是 "gen_width"，查找是否有设置宽度的节点
+                            if "width" in get_node_name.lower() or "gen_width" in get_node_name.lower():
+                                # 查找是否有设置宽度的节点（如节点235或186）
+                                for alt_node_id in ["235", "186"]:
+                                    if alt_node_id in prompt:
+                                        logger.info(f"  找到替代节点 {alt_node_id}，尝试修复 GetNode {node_id_check}")
+                                        # 更新引用
+                                        prompt[node_id_check]["inputs"][input_name] = [alt_node_id, 0]
+                                        break
+        
+        # 记录所有 GetNode 节点
+        getnode_nodes = []
+        for node_id_check, node_data in prompt.items():
+            if "GetNode" in str(node_data.get("class_type", "")):
+                getnode_nodes.append(node_id_check)
+        
+        if getnode_nodes:
+            logger.info(f"发现 {len(getnode_nodes)} 个 GetNode 节点: {getnode_nodes}")
+            for getnode_id in getnode_nodes:
+                node_data = prompt[getnode_id]
+                widgets_values = node_data.get("widgets_values", [])
+                if widgets_values and len(widgets_values) > 0:
+                    get_node_name = widgets_values[0] if isinstance(widgets_values, list) else None
+                    logger.info(f"  GetNode {getnode_id} 尝试获取: {get_node_name}")
+        
         logger.info("已转换 nodes 数组格式为节点 ID key 格式")
     else:
         # new_Wan22_api.json 使用节点 ID key 格式
