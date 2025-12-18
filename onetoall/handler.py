@@ -707,16 +707,15 @@ def handler(job):
                 # 对于 GetNode 节点，确保 class_type 正确设置
                 if "GetNode" in str(node_type):
                     # GetNode 节点可能包含命名空间，如 "GetNode|comfyui-logic"
-                    # 如果已经包含命名空间，使用它；否则尝试添加 comfyui-logic 命名空间
+                    # 如果已经包含命名空间，使用它；否则添加 comfyui-logic 命名空间
                     if "|" in str(node_type):
                         # 已经包含命名空间，直接使用
                         converted_node["class_type"] = node_type
                         logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} (已包含命名空间)")
                     else:
-                        # 没有命名空间，尝试添加 comfyui-logic（GetNode 通常来自这个插件）
-                        # 但首先尝试直接使用 "GetNode"，如果不行再添加命名空间
-                        converted_node["class_type"] = node_type
-                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} -> {node_type} (无命名空间)")
+                        # 没有命名空间，添加 comfyui-logic 命名空间（GetNode 来自这个插件）
+                        converted_node["class_type"] = "GetNode|comfyui-logic"
+                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} -> GetNode|comfyui-logic (添加命名空间)")
                 # 检查节点类型是否包含管道符（命名空间），如 "MathExpression|pysssss"
                 elif "|" in node_type:
                     # 如果包含管道符，直接使用
@@ -1391,19 +1390,52 @@ def handler(job):
                     widgets.extend([1, 0, 1])  # 默认值
             logger.info(f"节点98 (WanVideoAddOneToAllPoseEmbeds): 已配置")
         
-        # 查找并配置文本编码节点（CLIPTextEncode 或类似节点）
-        # 在工作流中搜索文本编码节点
+        # 查找并配置文本编码节点（CLIPTextEncode 或 WanVideoTextEncode）
+        # WanVideoTextEncode 的 widgets_values: [正面提示词, 负面提示词, ...]
+        # 只更新正面提示词（索引0），保留负面提示词（索引1）
         for node_id, node in prompt.items():
             if "class_type" in node:
                 node_type = node.get("class_type", "")
-                if "CLIPTextEncode" in node_type or "WanVideoTextEncode" in node_type:
-                    # 查找正面提示词节点
-                    if "inputs" in node and "text" in node["inputs"]:
+                if "WanVideoTextEncode" in node_type:
+                    # WanVideoTextEncode 节点：widgets_values[0] = 正面提示词, [1] = 负面提示词
+                    if "widgets_values" in node and len(node["widgets_values"]) > 0:
+                        # 只更新正面提示词（索引0），保留负面提示词（索引1）和其他参数
+                        widgets = node["widgets_values"]
+                        if len(widgets) > 0:
+                            widgets[0] = positive_prompt
+                        # 如果提供了负面提示词，更新索引1
+                        if negative_prompt and len(widgets) > 1:
+                            widgets[1] = negative_prompt
+                        logger.info(f"节点{node_id} (WanVideoTextEncode): 正面提示词已更新，负面提示词{'已更新' if negative_prompt else '保留原值'}")
+                    if "inputs" not in node:
+                        node["inputs"] = {}
+                    # 也更新 inputs（如果存在）
+                    if "text" in node.get("inputs", {}):
                         node["inputs"]["text"] = positive_prompt
-                        logger.info(f"节点{node_id} (文本编码 - 正面): {positive_prompt[:50]}...")
+                elif "CLIPTextEncode" in node_type:
+                    # CLIPTextEncode 节点：通常只有一个 text 输入
+                    # 需要根据节点位置或连接关系判断是正面还是负面
+                    # 这里假设第一个找到的是正面提示词节点（可能需要根据实际工作流调整）
+                    if "inputs" in node and "text" in node["inputs"]:
+                        # 检查当前值是否看起来像负面提示词（包含常见负面词）
+                        current_text = node["inputs"].get("text", "")
+                        is_negative = any(word in current_text.lower() for word in ["bad", "worst", "low quality", "blurry", "static", "模糊", "低质量", "最差"])
+                        if not is_negative:
+                            node["inputs"]["text"] = positive_prompt
+                            logger.info(f"节点{node_id} (CLIPTextEncode - 正面): {positive_prompt[:50]}...")
+                        elif negative_prompt:
+                            node["inputs"]["text"] = negative_prompt
+                            logger.info(f"节点{node_id} (CLIPTextEncode - 负面): {negative_prompt[:50]}...")
                     elif "widgets_values" in node and len(node["widgets_values"]) > 0:
-                        node["widgets_values"][0] = positive_prompt
-                        logger.info(f"节点{node_id} (文本编码 - 正面): {positive_prompt[:50]}...")
+                        # 检查当前值判断是正面还是负面
+                        current_text = str(node["widgets_values"][0])
+                        is_negative = any(word in current_text.lower() for word in ["bad", "worst", "low quality", "blurry", "static", "模糊", "低质量", "最差"])
+                        if not is_negative:
+                            node["widgets_values"][0] = positive_prompt
+                            logger.info(f"节点{node_id} (CLIPTextEncode - 正面): {positive_prompt[:50]}...")
+                        elif negative_prompt:
+                            node["widgets_values"][0] = negative_prompt
+                            logger.info(f"节点{node_id} (CLIPTextEncode - 负面): {negative_prompt[:50]}...")
         
         # 查找并配置采样器节点（WanVideoSampler）
         for node_id, node in prompt.items():
