@@ -209,6 +209,58 @@ def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
         if len(widgets_values) > 1 and "num_frames" not in inputs:
             inputs["num_frames"] = widgets_values[1]
     
+    elif class_type == "OnnxDetectionModelLoader":
+        # widgets_values: [vitpose_model, yolo_model, onnx_device]
+        # 实际: ["onnx\\vitpose_h_wholebody_model.onnx", "onnx\\yolov10m.onnx", "CUDAExecutionProvider"]
+        if len(widgets_values) > 0 and "vitpose_model" not in inputs:
+            inputs["vitpose_model"] = widgets_values[0].replace("\\", "/")
+        if len(widgets_values) > 1 and "yolo_model" not in inputs:
+            inputs["yolo_model"] = widgets_values[1].replace("\\", "/")
+        if len(widgets_values) > 2 and "onnx_device" not in inputs:
+            inputs["onnx_device"] = widgets_values[2]
+    
+    elif class_type == "WanVideoVAELoader":
+        # widgets_values: [model_name, load_precision]
+        # 实际: ["wanvideo\\Wan2_1_VAE_bf16.safetensors", "bf16"]
+        if len(widgets_values) > 0 and "model_name" not in inputs:
+            inputs["model_name"] = widgets_values[0].replace("\\", "/")
+        if len(widgets_values) > 1 and "load_precision" not in inputs:
+            inputs["load_precision"] = widgets_values[1]
+    
+    elif class_type == "CLIPVisionLoader":
+        # widgets_values: [clip_name]
+        # 实际: ["clip_vision_h.safetensors"]
+        if len(widgets_values) > 0 and "clip_name" not in inputs:
+            inputs["clip_name"] = widgets_values[0]
+    
+    elif class_type == "DrawViTPose":
+        # widgets_values: [width, height, retarget_padding, hand_stick_width, body_stick_width, draw_head]
+        # 实际: [480, 832, 16, -1, -1, true]
+        # 注意: width 和 height 通常有 link，所以不会从 widgets_values 获取
+        if len(widgets_values) > 2 and "retarget_padding" not in inputs:
+            inputs["retarget_padding"] = widgets_values[2]
+        if len(widgets_values) > 3 and "hand_stick_width" not in inputs:
+            inputs["hand_stick_width"] = widgets_values[3]
+        if len(widgets_values) > 4 and "body_stick_width" not in inputs:
+            inputs["body_stick_width"] = widgets_values[4]
+        if len(widgets_values) > 5 and "draw_head" not in inputs:
+            inputs["draw_head"] = widgets_values[5]
+    
+    elif class_type == "ImageResizeKJv2":
+        # widgets_values: [width, height, upscale_method, keep_proportion, pad_color, crop_position, divisible_by, device]
+        # 实际: [480, 832, "lanczos", "crop", "0, 0, 0", "center", 16, "cpu"]
+        # 注意: width 和 height 通常有 link，所以不会从 widgets_values 获取
+        if len(widgets_values) > 2 and "upscale_method" not in inputs:
+            inputs["upscale_method"] = widgets_values[2]
+        if len(widgets_values) > 3 and "keep_proportion" not in inputs:
+            inputs["keep_proportion"] = widgets_values[3]
+        if len(widgets_values) > 4 and "pad_color" not in inputs:
+            inputs["pad_color"] = widgets_values[4]
+        if len(widgets_values) > 5 and "crop_position" not in inputs:
+            inputs["crop_position"] = widgets_values[5]
+        if len(widgets_values) > 6 and "divisible_by" not in inputs:
+            inputs["divisible_by"] = widgets_values[6]
+    
     elif class_type == "WanVideoClipVisionEncode":
         # widgets_values: [strength_1, strength_2, crop, combine_embeds, force_offload, ?, ?]
         # 实际: [1, 1, "center", "average", true, 0, 0.2]
@@ -467,15 +519,20 @@ def handler(job):
         log_input["reference_video_base64"] = f"<base64 data, length: {len(job_input['reference_video_base64'])}>"
     logger.info(f"Received job input: {log_input}")
     task_id = f"task_{uuid.uuid4()}"
+    
+    # ComfyUI input 目录 - VHS_LoadVideo 和 LoadImage 需要在这里查找文件
+    comfyui_input_dir = "/ComfyUI/input"
+    task_input_dir = os.path.join(comfyui_input_dir, task_id)
+    os.makedirs(task_input_dir, exist_ok=True)
 
     # 이미지 입력 처리 (image_path, image_url, image_base64 중 하나만 사용)
     image_path = None
     if "image_path" in job_input:
-        image_path = process_input(job_input["image_path"], task_id, "input_image.jpg", "path")
+        image_path = process_input(job_input["image_path"], task_input_dir, "input_image.jpg", "path")
     elif "image_url" in job_input:
-        image_path = process_input(job_input["image_url"], task_id, "input_image.jpg", "url")
+        image_path = process_input(job_input["image_url"], task_input_dir, "input_image.jpg", "url")
     elif "image_base64" in job_input:
-        image_path = process_input(job_input["image_base64"], task_id, "input_image.jpg", "base64")
+        image_path = process_input(job_input["image_base64"], task_input_dir, "input_image.jpg", "base64")
     else:
         # 기본값 사용
         image_path = "/example_image.png"
@@ -877,34 +934,48 @@ def handler(job):
         
         # 节点76: LoadImage (参考图像)
         if "76" in prompt:
+            # LoadImage 也需要相对于 ComfyUI input 目录的路径
+            image_relative_path = f"{task_id}/input_image.jpg"
+            
             if "widgets_values" in prompt["76"]:
-                prompt["76"]["widgets_values"][0] = image_path
+                prompt["76"]["widgets_values"][0] = image_relative_path
             if "inputs" not in prompt["76"]:
                 prompt["76"]["inputs"] = {}
-            prompt["76"]["inputs"]["image"] = image_path
-            logger.info(f"节点76 (参考图像): {image_path}")
+            prompt["76"]["inputs"]["image"] = image_relative_path
+            logger.info(f"节点76 (参考图像): {image_path} -> {image_relative_path}")
         
         # 节点75: VHS_LoadVideo (参考视频) - 可选
         # 支持 reference_video_path, reference_video_url, reference_video_base64, video_base64 多种参数名
         reference_video_path = None
         if "reference_video_path" in job_input:
-            reference_video_path = process_input(job_input["reference_video_path"], task_id, "reference_video.mp4", "path")
+            reference_video_path = process_input(job_input["reference_video_path"], task_input_dir, "reference_video.mp4", "path")
         elif "reference_video_url" in job_input:
-            reference_video_path = process_input(job_input["reference_video_url"], task_id, "reference_video.mp4", "url")
+            reference_video_path = process_input(job_input["reference_video_url"], task_input_dir, "reference_video.mp4", "url")
         elif "reference_video_base64" in job_input:
-            reference_video_path = process_input(job_input["reference_video_base64"], task_id, "reference_video.mp4", "base64")
+            reference_video_path = process_input(job_input["reference_video_base64"], task_input_dir, "reference_video.mp4", "base64")
         elif "video_base64" in job_input:
-            reference_video_path = process_input(job_input["video_base64"], task_id, "reference_video.mp4", "base64")
+            reference_video_path = process_input(job_input["video_base64"], task_input_dir, "reference_video.mp4", "base64")
         
         if reference_video_path and "75" in prompt:
+            # VHS_LoadVideo 需要相对于 ComfyUI input 目录的路径
+            # 例如: task_xxx/reference_video.mp4
+            video_relative_path = f"{task_id}/reference_video.mp4"
+            
+            # 更新 widgets_values
             if "widgets_values" in prompt["75"]:
                 widgets = prompt["75"]["widgets_values"]
                 if isinstance(widgets, dict):
-                    widgets["video"] = reference_video_path
+                    widgets["video"] = video_relative_path
                     if "videopreview" in widgets and isinstance(widgets["videopreview"], dict):
                         if "params" in widgets["videopreview"]:
-                            widgets["videopreview"]["params"]["filename"] = reference_video_path
-            logger.info(f"节点75 (参考视频): {reference_video_path}")
+                            widgets["videopreview"]["params"]["filename"] = video_relative_path
+            
+            # 更新 inputs
+            if "inputs" not in prompt["75"]:
+                prompt["75"]["inputs"] = {}
+            prompt["75"]["inputs"]["video"] = video_relative_path
+            
+            logger.info(f"节点75 (参考视频): {reference_video_path} -> {video_relative_path}")
         elif "75" in prompt:
             logger.info("未提供参考视频，将仅使用参考图像和提示词生成运动")
         
