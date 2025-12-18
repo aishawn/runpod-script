@@ -73,6 +73,7 @@ def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
     
     elif class_type == "WanVideoSamplerSettings":
         # widgets_values: [steps, ?, ?, seed, sampler, ?, scheduler, shift, force_offload, riflex_freq_index, ...]
+        # 实际: [4, 1, 5, 42, "fixed", true, "dpm++_sde", 0, 1, false, "comfy", 0, -1, false]
         if len(widgets_values) > 7 and "shift" not in inputs:
             inputs["shift"] = widgets_values[7]
         if len(widgets_values) > 8 and "force_offload" not in inputs:
@@ -81,13 +82,14 @@ def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
             inputs["riflex_freq_index"] = widgets_values[9]
     
     elif class_type == "WanVideoModelLoader":
-        # widgets_values: [model_path, load_device, base_precision, quantization, ...]
-        if len(widgets_values) > 1 and "load_device" not in inputs:
-            inputs["load_device"] = widgets_values[1]
-        if len(widgets_values) > 2 and "base_precision" not in inputs:
-            inputs["base_precision"] = widgets_values[2]
-        if len(widgets_values) > 3 and "quantization" not in inputs:
-            inputs["quantization"] = widgets_values[3]
+        # widgets_values: [model_path, base_precision, quantization, load_device, ?, ?]
+        # 实际: ["WanVideo\\SteadyDancer\\...", "fp16_fast", "disabled", "offload_device", "sageattn", "default"]
+        if len(widgets_values) > 1 and "base_precision" not in inputs:
+            inputs["base_precision"] = widgets_values[1]
+        if len(widgets_values) > 2 and "quantization" not in inputs:
+            inputs["quantization"] = widgets_values[2]
+        if len(widgets_values) > 3 and "load_device" not in inputs:
+            inputs["load_device"] = widgets_values[3]
     
     elif class_type == "WanVideoLoraSelect":
         # widgets_values: [lora_path, strength, ...]
@@ -97,7 +99,9 @@ def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
             inputs["strength"] = widgets_values[1]
     
     elif class_type == "WanVideoImageToVideoEncode":
-        # widgets_values: [height, width, num_frames, start_latent_strength, end_latent_strength, noise_aug_strength, force_offload, ...]
+        # widgets_values: [width, height, num_frames, start_latent_strength, end_latent_strength, noise_aug_strength, force_offload, ...]
+        # 实际: [832, 480, 81, 0, 1, 1, true, true, false, 0]
+        # 注意: width, height, num_frames 通常有 link，所以不会从 widgets_values 获取
         if len(widgets_values) > 3 and "start_latent_strength" not in inputs:
             inputs["start_latent_strength"] = widgets_values[3]
         if len(widgets_values) > 4 and "end_latent_strength" not in inputs:
@@ -119,48 +123,54 @@ def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
             inputs["end_percent"] = widgets_values[3]
     
     elif class_type == "WanVideoBlockSwap":
-        # widgets_values: [offload_txt_emb, offload_img_emb, blocks_to_swap, ...]
-        if len(widgets_values) > 0 and "offload_txt_emb" not in inputs:
-            inputs["offload_txt_emb"] = widgets_values[0]
-        if len(widgets_values) > 1 and "offload_img_emb" not in inputs:
-            inputs["offload_img_emb"] = widgets_values[1]
-        if len(widgets_values) > 2 and "blocks_to_swap" not in inputs:
-            inputs["blocks_to_swap"] = widgets_values[2]
+        # widgets_values: [blocks_to_swap, offload_txt_emb, offload_img_emb, ?, ?, ?, ?]
+        # 实际: [35, false, false, true, 0, 1, false]
+        if len(widgets_values) > 0 and "blocks_to_swap" not in inputs:
+            inputs["blocks_to_swap"] = widgets_values[0]
+        if len(widgets_values) > 1 and "offload_txt_emb" not in inputs:
+            inputs["offload_txt_emb"] = widgets_values[1]
+        if len(widgets_values) > 2 and "offload_img_emb" not in inputs:
+            inputs["offload_img_emb"] = widgets_values[2]
     
     elif class_type == "WanVideoTorchCompileSettings":
-        # widgets_values: [dynamo_cache_size_limit, backend, compile_transformer_blocks_only, mode, fullgraph, dynamic, ...]
-        if len(widgets_values) > 0 and "dynamo_cache_size_limit" not in inputs:
-            inputs["dynamo_cache_size_limit"] = widgets_values[0]
-        if len(widgets_values) > 1 and "backend" not in inputs:
-            inputs["backend"] = widgets_values[1]
-        if len(widgets_values) > 2 and "compile_transformer_blocks_only" not in inputs:
-            inputs["compile_transformer_blocks_only"] = widgets_values[2]
-        if len(widgets_values) > 3 and "mode" not in inputs:
-            inputs["mode"] = widgets_values[3]
-        if len(widgets_values) > 4 and "fullgraph" not in inputs:
-            inputs["fullgraph"] = widgets_values[4]
+        # widgets_values: [backend, compile_transformer_blocks_only, mode, fullgraph, dynamo_cache_size_limit, dynamic, ...]
+        # 实际: ["inductor", false, "default", false, 64, true, 128, false, false]
+        if len(widgets_values) > 0 and "backend" not in inputs:
+            inputs["backend"] = widgets_values[0]
+        if len(widgets_values) > 1 and "compile_transformer_blocks_only" not in inputs:
+            inputs["compile_transformer_blocks_only"] = widgets_values[1]
+        if len(widgets_values) > 2 and "mode" not in inputs:
+            inputs["mode"] = widgets_values[2]
+        if len(widgets_values) > 3 and "fullgraph" not in inputs:
+            inputs["fullgraph"] = widgets_values[3]
+        if len(widgets_values) > 4 and "dynamo_cache_size_limit" not in inputs:
+            inputs["dynamo_cache_size_limit"] = widgets_values[4]
         if len(widgets_values) > 5 and "dynamic" not in inputs:
             inputs["dynamic"] = widgets_values[5]
     
     elif class_type == "ImageConcatMulti":
-        # widgets_values: [direction, inputcount, match_image_size, ...]
-        if len(widgets_values) > 0 and "direction" not in inputs:
-            inputs["direction"] = widgets_values[0]
-        if len(widgets_values) > 1 and "inputcount" not in inputs:
-            inputs["inputcount"] = widgets_values[1]
+        # widgets_values: [inputcount, direction, match_image_size, ...]
+        # 实际: [2, "down", false, null] 或 [2, "left", true, null]
+        if len(widgets_values) > 0 and "inputcount" not in inputs:
+            inputs["inputcount"] = widgets_values[0]
+        if len(widgets_values) > 1 and "direction" not in inputs:
+            inputs["direction"] = widgets_values[1]
         if len(widgets_values) > 2 and "match_image_size" not in inputs:
             inputs["match_image_size"] = widgets_values[2]
     
     elif class_type == "WanVideoDecode":
-        # widgets_values: [tile_x, tile_y, tile_stride_x, tile_stride_y, ...]
-        if len(widgets_values) > 0 and "tile_x" not in inputs:
-            inputs["tile_x"] = widgets_values[0]
-        if len(widgets_values) > 1 and "tile_y" not in inputs:
-            inputs["tile_y"] = widgets_values[1]
-        if len(widgets_values) > 2 and "tile_stride_x" not in inputs:
-            inputs["tile_stride_x"] = widgets_values[2]
-        if len(widgets_values) > 3 and "tile_stride_y" not in inputs:
-            inputs["tile_stride_y"] = widgets_values[3]
+        # widgets_values: [enable_vae_tiling, tile_x, tile_y, tile_stride_x, tile_stride_y, ...]
+        # 实际: [false, 272, 272, 144, 128, "default"]
+        if len(widgets_values) > 0 and "enable_vae_tiling" not in inputs:
+            inputs["enable_vae_tiling"] = widgets_values[0]
+        if len(widgets_values) > 1 and "tile_x" not in inputs:
+            inputs["tile_x"] = widgets_values[1]
+        if len(widgets_values) > 2 and "tile_y" not in inputs:
+            inputs["tile_y"] = widgets_values[2]
+        if len(widgets_values) > 3 and "tile_stride_x" not in inputs:
+            inputs["tile_stride_x"] = widgets_values[3]
+        if len(widgets_values) > 4 and "tile_stride_y" not in inputs:
+            inputs["tile_stride_y"] = widgets_values[4]
     
     elif class_type == "WanVideoEncode":
         # widgets_values: [enable_vae_tiling, tile_x, tile_y, tile_stride_x, tile_stride_y, ...]
@@ -176,43 +186,43 @@ def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
             inputs["tile_stride_y"] = widgets_values[4]
     
     elif class_type == "WanVideoContextOptions":
-        # widgets_values: [context_frames, context_overlap, context_stride, context_schedule, freenoise, verbose, ...]
-        if len(widgets_values) > 0 and "context_frames" not in inputs:
-            inputs["context_frames"] = widgets_values[0]
-        if len(widgets_values) > 1 and "context_overlap" not in inputs:
-            inputs["context_overlap"] = widgets_values[1]
-        if len(widgets_values) > 2 and "context_stride" not in inputs:
-            inputs["context_stride"] = widgets_values[2]
-        if len(widgets_values) > 3 and "context_schedule" not in inputs:
-            inputs["context_schedule"] = widgets_values[3]
+        # widgets_values: [context_schedule, context_frames, context_overlap, context_stride, freenoise, verbose, ...]
+        # 实际: ["uniform_standard", 81, 4, 16, true, false, "linear"]
+        if len(widgets_values) > 0 and "context_schedule" not in inputs:
+            inputs["context_schedule"] = widgets_values[0]
+        if len(widgets_values) > 1 and "context_frames" not in inputs:
+            inputs["context_frames"] = widgets_values[1]
+        if len(widgets_values) > 2 and "context_overlap" not in inputs:
+            inputs["context_overlap"] = widgets_values[2]
+        if len(widgets_values) > 3 and "context_stride" not in inputs:
+            inputs["context_stride"] = widgets_values[3]
         if len(widgets_values) > 4 and "freenoise" not in inputs:
             inputs["freenoise"] = widgets_values[4]
         if len(widgets_values) > 5 and "verbose" not in inputs:
             inputs["verbose"] = widgets_values[5]
     
     elif class_type == "GetImageRangeFromBatch":
-        # widgets_values: [num_frames, start_index, ...]
-        if len(widgets_values) > 0 and "num_frames" not in inputs:
-            inputs["num_frames"] = widgets_values[0]
-        if len(widgets_values) > 1 and "start_index" not in inputs:
-            inputs["start_index"] = widgets_values[1]
+        # widgets_values: [start_index, num_frames, ...]
+        # 实际: [0, 1]
+        if len(widgets_values) > 0 and "start_index" not in inputs:
+            inputs["start_index"] = widgets_values[0]
+        if len(widgets_values) > 1 and "num_frames" not in inputs:
+            inputs["num_frames"] = widgets_values[1]
     
     elif class_type == "WanVideoClipVisionEncode":
-        # widgets_values: [image_1, strength_1, strength_2, crop, combine_embeds, clip_vision, force_offload, ...]
-        if len(widgets_values) > 0 and "image_1" not in inputs:
-            inputs["image_1"] = widgets_values[0]
-        if len(widgets_values) > 1 and "strength_1" not in inputs:
-            inputs["strength_1"] = widgets_values[1]
-        if len(widgets_values) > 2 and "strength_2" not in inputs:
-            inputs["strength_2"] = widgets_values[2]
-        if len(widgets_values) > 3 and "crop" not in inputs:
-            inputs["crop"] = widgets_values[3]
-        if len(widgets_values) > 4 and "combine_embeds" not in inputs:
-            inputs["combine_embeds"] = widgets_values[4]
-        if len(widgets_values) > 5 and "clip_vision" not in inputs:
-            inputs["clip_vision"] = widgets_values[5]
-        if len(widgets_values) > 6 and "force_offload" not in inputs:
-            inputs["force_offload"] = widgets_values[6]
+        # widgets_values: [strength_1, strength_2, crop, combine_embeds, force_offload, ?, ?]
+        # 实际: [1, 1, "center", "average", true, 0, 0.2]
+        # 注意: image_1 和 clip_vision 是输入连接，不是 widget 值
+        if len(widgets_values) > 0 and "strength_1" not in inputs:
+            inputs["strength_1"] = widgets_values[0]
+        if len(widgets_values) > 1 and "strength_2" not in inputs:
+            inputs["strength_2"] = widgets_values[1]
+        if len(widgets_values) > 2 and "crop" not in inputs:
+            inputs["crop"] = widgets_values[2]
+        if len(widgets_values) > 3 and "combine_embeds" not in inputs:
+            inputs["combine_embeds"] = widgets_values[3]
+        if len(widgets_values) > 4 and "force_offload" not in inputs:
+            inputs["force_offload"] = widgets_values[4]
 def process_input(input_data, temp_dir, output_filename, input_type):
     """입력 데이터를 처리하여 파일 경로를 반환하는 함수"""
     if input_type == "path":
@@ -582,8 +592,20 @@ def handler(job):
                                             converted_inputs[input_name] = [source_node_id, source_output_index]
                                         else:
                                             # 如果找不到 link，可能是引用了被跳过的节点
-                                            logger.warning(f"节点 {node_id} 的输入 {input_name} 的 link {link_id} 不存在（可能指向被跳过的辅助节点），跳过此输入")
-                                            # 不设置此输入，让 ComfyUI 使用默认值
+                                            logger.warning(f"节点 {node_id} 的输入 {input_name} 的 link {link_id} 不存在（可能指向被跳过的辅助节点）")
+                                            # 如果该输入有 widget，尝试从 widgets_values 获取备用值
+                                            if has_widget:
+                                                widget_value = None
+                                                if widgets_values_is_dict:
+                                                    widget_value = widgets_values.get(input_name)
+                                                elif widget_index < len(widgets_values):
+                                                    widget_value = widgets_values[widget_index]
+                                                
+                                                if widget_value is not None:
+                                                    converted_inputs[input_name] = widget_value
+                                                    logger.info(f"节点 {node_id} 的输入 {input_name} 使用 widget 值作为备用: {widget_value}")
+                                                else:
+                                                    logger.warning(f"节点 {node_id} 的输入 {input_name} 的 link 无效且无 widget 值，将使用默认值")
                                         # 如果有 widget，需要跳过 widgets_values 中的对应值（仅当是列表时）
                                         if not widgets_values_is_dict and has_widget and widget_index < len(widgets_values):
                                             widget_index += 1
