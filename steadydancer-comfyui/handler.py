@@ -1148,11 +1148,11 @@ def handler(job):
         if "38" in prompt:
             if "inputs" not in prompt["38"]:
                 prompt["38"]["inputs"] = {}
+            # VAE 模型直接在 ComfyUI/models/vae 目录，不需要子目录前缀
+            prompt["38"]["inputs"]["model_name"] = "Wan2_1_VAE_bf16.safetensors"
             if "widgets_values" in prompt["38"]:
                 widgets = prompt["38"]["widgets_values"]
                 if isinstance(widgets, list) and len(widgets) >= 2:
-                    if "model_name" not in prompt["38"]["inputs"]:
-                        prompt["38"]["inputs"]["model_name"] = widgets[0].replace("\\", "/")
                     if "load_precision" not in prompt["38"]["inputs"]:
                         prompt["38"]["inputs"]["load_precision"] = widgets[1]
             logger.info(f"节点38 (VAE): model_name={prompt['38']['inputs'].get('model_name')}")

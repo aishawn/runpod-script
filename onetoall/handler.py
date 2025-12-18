@@ -238,6 +238,24 @@ def get_videos(ws, prompt, is_mega_model=False):
 
     return output_videos
 
+def get_getnode_class_name():
+    """获取 GetNode 节点在 ComfyUI 中的实际 class_type 名称"""
+    try:
+        url = f"http://{server_address}:8188/object_info"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            object_info = json.loads(response.read())
+            # 检查可能的 GetNode 节点名称
+            possible_names = ["GetNode|comfyui-logic", "GetNode", "GetNode|theUpsider"]
+            for name in possible_names:
+                if name in object_info:
+                    logger.info(f"找到 GetNode 节点: {name}")
+                    return name
+            logger.warning("未找到 GetNode 节点，将使用默认名称 'GetNode'")
+            return "GetNode"
+    except Exception as e:
+        logger.warning(f"获取 GetNode 节点名称失败: {e}，将使用默认名称 'GetNode'")
+        return "GetNode"
+
 def get_available_models():
     """获取 ComfyUI 中可用的模型列表"""
     try:
@@ -532,6 +550,9 @@ def handler(job):
     # 获取可用模型列表，用于检测 MEGA/AIO 模型
     available_models = get_available_models()
     
+    # 获取 GetNode 节点的实际 class_type 名称（用于后续转换）
+    getnode_class_name = get_getnode_class_name()
+    
     # 检测是否为 MEGA/AIO 模型（支持 I2V 和 T2V 的 all-in-one 模型）
     is_mega_model = False
     if available_models:
@@ -707,15 +728,16 @@ def handler(job):
                 # 对于 GetNode 节点，确保 class_type 正确设置
                 if "GetNode" in str(node_type):
                     # GetNode 节点可能包含命名空间，如 "GetNode|comfyui-logic"
-                    # 如果已经包含命名空间，使用它；否则添加 comfyui-logic 命名空间
+                    # 如果已经包含命名空间，使用它；否则使用从 ComfyUI 获取的实际名称
                     if "|" in str(node_type):
                         # 已经包含命名空间，直接使用
                         converted_node["class_type"] = node_type
                         logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} (已包含命名空间)")
                     else:
-                        # 没有命名空间，添加 comfyui-logic 命名空间（GetNode 来自这个插件）
-                        converted_node["class_type"] = "GetNode|comfyui-logic"
-                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} -> GetNode|comfyui-logic (添加命名空间)")
+                        # 没有命名空间，使用从 ComfyUI object_info 获取的实际名称
+                        # 这确保使用 ComfyUI 实际注册的节点名称
+                        converted_node["class_type"] = getnode_class_name
+                        logger.info(f"节点 {node_id} GetNode 类型处理: {node_type} -> {getnode_class_name} (使用 ComfyUI 注册的名称)")
                 # 检查节点类型是否包含管道符（命名空间），如 "MathExpression|pysssss"
                 elif "|" in node_type:
                     # 如果包含管道符，直接使用
@@ -896,14 +918,16 @@ def handler(job):
                                 node_type = converted_node["type"]
                                 if "GetNode" in str(node_type):
                                     if "|" in str(node_type):
-                                        base_type = str(node_type).split("|")[0].strip()
-                                        converted_node["class_type"] = base_type
-                                    else:
+                                        # 已经包含命名空间，直接使用
                                         converted_node["class_type"] = node_type
+                                    else:
+                                        # 使用从 ComfyUI 获取的实际名称
+                                        converted_node["class_type"] = getnode_class_name
                                 else:
                                     converted_node["class_type"] = node_type
                             elif "class_type" not in converted_node:
-                                converted_node["class_type"] = original_type if original_type else "GetNode"
+                                # 如果没有 type，使用从 ComfyUI 获取的实际名称
+                                converted_node["class_type"] = getnode_class_name if "GetNode" in str(original_type) else (original_type if original_type else "GetNode")
                             
                             # 确保 inputs 存在
                             if "inputs" not in converted_node:
