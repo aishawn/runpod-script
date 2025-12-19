@@ -1,0 +1,16 @@
+{
+  "input": {
+    "use_wan21_workflow": true,
+    "image_path": "/example_image.png",
+    "prompt": "A person walking forward gracefully",
+    "negative_prompt": "static, blurry, low quality, distorted, bad anatomy, deformed",
+    "width": 480,
+    "height": 832,
+    "length": 81,
+    "seed": 42,
+    "cfg": 2.0,
+    "steps": 6
+  }
+}
+
+

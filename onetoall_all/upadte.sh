@@ -1,0 +1,1 @@
+bash -c "echo 'Downloading99003 handler.py...' && curl -f -L -S -o /handler.py https://raw.githubusercontent.com/aishawn/runpod-script/main/onetoall/handler.py && ([ -s /handler.py ] && echo '✓ Successfully downloaded handler.py' || (echo '✗ Failed: handler.py is empty' && exit 1)) || (echo '✗ Failed to download /handler.py' && exit 1) && /entrypoint.sh"
