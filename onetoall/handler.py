@@ -760,7 +760,16 @@ def fill_missing_inputs_from_widgets(node_id, node):
         if len(widgets) >= 4 and "end_step" not in node["inputs"]:
             node["inputs"]["end_step"] = widgets[3]
         if len(widgets) >= 5 and "shift" not in node["inputs"]:
-            node["inputs"]["shift"] = widgets[4]
+            shift_value = widgets[4]
+            # 确保 shift 值 >= 0
+            if isinstance(shift_value, (int, float)) and shift_value < 0:
+                shift_value = 0.0
+            node["inputs"]["shift"] = shift_value
+        # 验证并修正 shift 值
+        if "shift" in node["inputs"]:
+            shift_value = node["inputs"]["shift"]
+            if isinstance(shift_value, (int, float)) and shift_value < 0:
+                node["inputs"]["shift"] = 0.0
     elif "WanVideoAddOneToAllExtendEmbeds" in class_type:
         # widgets: [num_frames, window_size, if_not_enough_frames]
         if len(widgets) >= 1 and "num_frames" not in node["inputs"]:
@@ -768,7 +777,20 @@ def fill_missing_inputs_from_widgets(node_id, node):
         if len(widgets) >= 2 and "window_size" not in node["inputs"]:
             node["inputs"]["window_size"] = widgets[1]
         if len(widgets) >= 3 and "if_not_enough_frames" not in node["inputs"]:
-            node["inputs"]["if_not_enough_frames"] = widgets[2]
+            if_not_enough = widgets[2]
+            # 修正值：0 -> 'pad_with_last', 1 -> 'error'
+            if if_not_enough == 0:
+                if_not_enough = "pad_with_last"
+            elif if_not_enough == 1:
+                if_not_enough = "error"
+            node["inputs"]["if_not_enough_frames"] = if_not_enough
+        # 验证并修正 if_not_enough_frames 值
+        if "if_not_enough_frames" in node["inputs"]:
+            if_not_enough = node["inputs"]["if_not_enough_frames"]
+            if if_not_enough == 0:
+                node["inputs"]["if_not_enough_frames"] = "pad_with_last"
+            elif if_not_enough == 1:
+                node["inputs"]["if_not_enough_frames"] = "error"
     elif "WanVideoAddOneToAllPoseEmbeds" in class_type or "WanVideoAddOneToAllReferenceEmbeds" in class_type:
         # widgets: [strength, start_percent, end_percent]
         if len(widgets) >= 1 and "strength" not in node["inputs"]:
@@ -782,9 +804,22 @@ def fill_missing_inputs_from_widgets(node_id, node):
         if len(widgets) >= 1 and "overlap" not in node["inputs"]:
             node["inputs"]["overlap"] = widgets[0]
         if len(widgets) >= 2 and "overlap_mode" not in node["inputs"]:
-            node["inputs"]["overlap_mode"] = widgets[1]
+            overlap_mode = widgets[1]
+            # 修正值：'source' -> 'linear_blend' (正确的枚举值)
+            if overlap_mode == "source":
+                overlap_mode = "linear_blend"
+            node["inputs"]["overlap_mode"] = overlap_mode
         if len(widgets) >= 3 and "overlap_side" not in node["inputs"]:
-            node["inputs"]["overlap_side"] = widgets[2]
+            overlap_side = widgets[2]
+            # 修正值：'linear_blend' -> 'source' (正确的枚举值)
+            if overlap_side == "linear_blend":
+                overlap_side = "source"
+            node["inputs"]["overlap_side"] = overlap_side
+        # 验证并修正值
+        if "overlap_mode" in node["inputs"] and node["inputs"]["overlap_mode"] == "source":
+            node["inputs"]["overlap_mode"] = "linear_blend"
+        if "overlap_side" in node["inputs"] and node["inputs"]["overlap_side"] == "linear_blend":
+            node["inputs"]["overlap_side"] = "source"
     elif "GetImageRangeFromBatch" in class_type:
         # widgets: [start_index, end_index]
         if len(widgets) >= 1 and "start_index" not in node["inputs"]:
@@ -794,9 +829,32 @@ def fill_missing_inputs_from_widgets(node_id, node):
     elif "WanVideoLoraSelect" in class_type:
         # widgets: [lora, strength]
         if len(widgets) >= 1 and "lora" not in node["inputs"]:
-            node["inputs"]["lora"] = widgets[0]
+            lora_path = widgets[0]
+            # 规范化路径：去除反斜杠，去除路径前缀
+            if isinstance(lora_path, str):
+                lora_path = lora_path.replace("\\", "/")
+                # 去除 ComfyUI/models/loras/ 前缀
+                if lora_path.startswith("ComfyUI/models/loras/"):
+                    lora_path = lora_path.replace("ComfyUI/models/loras/", "")
+                elif lora_path.startswith("/ComfyUI/models/loras/"):
+                    lora_path = lora_path.replace("/ComfyUI/models/loras/", "")
+                # 去除 WanVideo/ 前缀（如果存在）
+                if lora_path.startswith("WanVideo/"):
+                    lora_path = lora_path.replace("WanVideo/", "")
+            node["inputs"]["lora"] = lora_path
         if len(widgets) >= 2 and "strength" not in node["inputs"]:
             node["inputs"]["strength"] = widgets[1]
+        # 验证并修正 lora 路径
+        if "lora" in node["inputs"] and isinstance(node["inputs"]["lora"], str):
+            lora_path = node["inputs"]["lora"]
+            lora_path = lora_path.replace("\\", "/")
+            if lora_path.startswith("ComfyUI/models/loras/"):
+                lora_path = lora_path.replace("ComfyUI/models/loras/", "")
+            elif lora_path.startswith("/ComfyUI/models/loras/"):
+                lora_path = lora_path.replace("/ComfyUI/models/loras/", "")
+            if lora_path.startswith("WanVideo/"):
+                lora_path = lora_path.replace("WanVideo/", "")
+            node["inputs"]["lora"] = lora_path
     elif "WanVideoBlockSwap" in class_type:
         # widgets: [blocks_to_swap, offload_txt_emb, offload_img_emb]
         if len(widgets) >= 1 and "blocks_to_swap" not in node["inputs"]:
@@ -810,7 +868,11 @@ def fill_missing_inputs_from_widgets(node_id, node):
         if len(widgets) >= 1 and "backend" not in node["inputs"]:
             node["inputs"]["backend"] = widgets[0]
         if len(widgets) >= 2 and "mode" not in node["inputs"]:
-            node["inputs"]["mode"] = widgets[1]
+            mode_value = widgets[1]
+            # 修正值：False -> 'default'
+            if mode_value is False or mode_value == "False":
+                mode_value = "default"
+            node["inputs"]["mode"] = mode_value
         if len(widgets) >= 3 and "fullgraph" not in node["inputs"]:
             node["inputs"]["fullgraph"] = widgets[2]
         if len(widgets) >= 4 and "dynamic" not in node["inputs"]:
@@ -819,14 +881,37 @@ def fill_missing_inputs_from_widgets(node_id, node):
             node["inputs"]["dynamo_cache_size_limit"] = widgets[4]
         if len(widgets) >= 6 and "compile_transformer_blocks_only" not in node["inputs"]:
             node["inputs"]["compile_transformer_blocks_only"] = widgets[5]
+        # 验证并修正 mode 值
+        if "mode" in node["inputs"]:
+            mode_value = node["inputs"]["mode"]
+            if mode_value is False or mode_value == "False":
+                node["inputs"]["mode"] = "default"
     elif "PoseDetectionOneToAllAnimation" in class_type:
         # 默认值
         if "align_to" not in node["inputs"]:
-            node["inputs"]["align_to"] = "head"
+            node["inputs"]["align_to"] = "ref"
+        else:
+            # 修正值：'head' -> 'ref'
+            if node["inputs"]["align_to"] == "head":
+                node["inputs"]["align_to"] = "ref"
         if "draw_face_points" not in node["inputs"]:
-            node["inputs"]["draw_face_points"] = False
+            node["inputs"]["draw_face_points"] = "full"
+        else:
+            # 修正值：False -> 'full', True -> 'full'
+            draw_face = node["inputs"]["draw_face_points"]
+            if draw_face is False or draw_face == "False":
+                node["inputs"]["draw_face_points"] = "full"
+            elif draw_face is True or draw_face == "True":
+                node["inputs"]["draw_face_points"] = "full"
         if "draw_head" not in node["inputs"]:
-            node["inputs"]["draw_head"] = False
+            node["inputs"]["draw_head"] = "full"
+        else:
+            # 修正值：False -> 'full', True -> 'full'
+            draw_head = node["inputs"]["draw_head"]
+            if draw_head is False or draw_head == "False":
+                node["inputs"]["draw_head"] = "full"
+            elif draw_head is True or draw_head == "True":
+                node["inputs"]["draw_head"] = "full"
     elif "ImageResizeKJv2" in class_type:
         # 默认值
         if "crop_position" not in node["inputs"]:
@@ -834,7 +919,14 @@ def fill_missing_inputs_from_widgets(node_id, node):
         if "upscale_method" not in node["inputs"]:
             node["inputs"]["upscale_method"] = "lanczos"
         if "keep_proportion" not in node["inputs"]:
-            node["inputs"]["keep_proportion"] = True
+            node["inputs"]["keep_proportion"] = "stretch"
+        else:
+            # 修正值：True -> 'stretch', False -> 'stretch'
+            keep_prop = node["inputs"]["keep_proportion"]
+            if keep_prop is True or keep_prop == "True":
+                node["inputs"]["keep_proportion"] = "stretch"
+            elif keep_prop is False or keep_prop == "False":
+                node["inputs"]["keep_proportion"] = "stretch"
         if "pad_color" not in node["inputs"]:
             node["inputs"]["pad_color"] = 0
         if "divisible_by" not in node["inputs"]:
@@ -1229,7 +1321,90 @@ def handler(job):
     logger.info("自动填充缺失的必需输入...")
     for node_id, node in prompt.items():
         fill_missing_inputs_from_widgets(node_id, node)
-    logger.info("输入填充完成")
+    
+    # 修正所有节点的值类型错误
+    logger.info("修正值类型错误...")
+    for node_id, node in prompt.items():
+        class_type = node.get("class_type", "")
+        if "inputs" not in node:
+            continue
+        
+        # WanVideoModelLoader: 修正 quantization 和 load_device
+        if "WanVideoModelLoader" in class_type:
+            if "quantization" in node["inputs"]:
+                quant = node["inputs"]["quantization"]
+                if quant not in ["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e4m3fn_scaled", "fp8_e4m3fn_scaled_fast", "fp8_e5m2", "fp8_e5m2_fast", "fp8_e5m2_scaled", "fp8_e5m2_scaled_fast"]:
+                    node["inputs"]["quantization"] = "disabled"
+            if "load_device" in node["inputs"]:
+                load_dev = node["inputs"]["load_device"]
+                if load_dev not in ["main_device", "offload_device"]:
+                    node["inputs"]["load_device"] = "offload_device"
+        
+        # WanVideoVAELoader: 规范化 model_name 路径
+        if "WanVideoVAELoader" in class_type:
+            if "model_name" in node["inputs"]:
+                model_name = node["inputs"]["model_name"]
+                if isinstance(model_name, str):
+                    model_name = model_name.replace("\\", "/")
+                    # 去除路径前缀，只保留文件名
+                    if "/" in model_name:
+                        model_name = model_name.split("/")[-1]
+                    node["inputs"]["model_name"] = model_name
+        
+        # OnnxDetectionModelLoader: 规范化模型路径
+        if "OnnxDetectionModelLoader" in class_type:
+            if "yolo_model" in node["inputs"]:
+                yolo_model = node["inputs"]["yolo_model"]
+                if isinstance(yolo_model, str):
+                    yolo_model = yolo_model.replace("\\", "/")
+                    # 去除 onnx/ 前缀
+                    if yolo_model.startswith("onnx/"):
+                        yolo_model = yolo_model.replace("onnx/", "")
+                    node["inputs"]["yolo_model"] = yolo_model
+            if "vitpose_model" in node["inputs"]:
+                vitpose_model = node["inputs"]["vitpose_model"]
+                if isinstance(vitpose_model, str):
+                    vitpose_model = vitpose_model.replace("\\", "/")
+                    # 去除路径前缀，只保留文件名
+                    if "/" in vitpose_model:
+                        vitpose_model = vitpose_model.split("/")[-1]
+                    node["inputs"]["vitpose_model"] = vitpose_model
+        
+        # VHS_VideoCombine: 检查并修复 images 输入类型
+        if "VHS_VideoCombine" in class_type:
+            if "images" in node["inputs"]:
+                images_input = node["inputs"]["images"]
+                if isinstance(images_input, list) and len(images_input) >= 1:
+                    source_node_id = str(images_input[0])
+                    if source_node_id in prompt:
+                        source_node = prompt[source_node_id]
+                        source_class = source_node.get("class_type", "")
+                        # 如果源节点是 WanVideoAddOneToAllExtendEmbeds，检查输出索引
+                        # 节点 297 和 311 的输出 0 应该是 extended_images (IMAGE)
+                        # 但如果实际返回的是 WANVIDIMAGE_EMBEDS，需要找到正确的输出索引
+                        if "WanVideoAddOneToAllExtendEmbeds" in source_class:
+                            # 检查源节点的输出定义
+                            outputs = source_node.get("outputs", [])
+                            if len(outputs) > 0:
+                                # 查找 extended_images 输出（应该是第一个）
+                                extended_images_idx = None
+                                for idx, output in enumerate(outputs):
+                                    if output.get("name") == "extended_images" and output.get("type") == "IMAGE":
+                                        extended_images_idx = idx
+                                        break
+                                # 如果找到了 extended_images 输出，但当前索引不对，需要修正
+                                if extended_images_idx is not None and len(images_input) >= 2 and images_input[1] != extended_images_idx:
+                                    logger.warning(f"节点 {node_id} (VHS_VideoCombine): images 输入来自节点 {source_node_id}，输出索引 {images_input[1]} 可能不正确，应该是 {extended_images_idx}")
+                                    # 修正输出索引
+                                    images_input[1] = extended_images_idx
+                                # 如果 outputs 中只有一个输出，但类型是 WANVIDIMAGE_EMBEDS，说明转换时出错了
+                                # 这种情况下，我们需要找到正确的输出节点（可能是通过 WanVideoDecode 转换）
+                                elif len(outputs) == 1 and outputs[0].get("type") == "WANVIDIMAGE_EMBEDS":
+                                    logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 的输出类型是 WANVIDIMAGE_EMBEDS，需要先通过 WanVideoDecode 转换为 IMAGE")
+                                    # 这里我们无法自动修复，因为需要添加新的节点
+                                    # 但我们可以记录错误，让用户知道问题所在
+    
+    logger.info("输入填充和值修正完成")
     
     # LoRA设置
     if lora_pairs and not is_mega_model:
