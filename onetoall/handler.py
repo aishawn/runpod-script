@@ -936,10 +936,14 @@ def handler(job):
             ensure_model_in_checkpoints(model_name)
             break
     
-    # 选择工作流
+    # 选择工作流（优先使用 API 格式）
     use_wan21_workflow = job_input.get("use_wan21_workflow", False) or os.path.exists("/Wan21_OneToAllAnimation_example_01.json")
     if use_wan21_workflow:
-        workflow_file = "/Wan21_OneToAllAnimation_example_01.json"
+        # 优先使用 API 格式的 workflow
+        if os.path.exists("/Wan21_OneToAllAnimation_example_01_api.json"):
+            workflow_file = "/Wan21_OneToAllAnimation_example_01_api.json"
+        else:
+            workflow_file = "/Wan21_OneToAllAnimation_example_01.json"
     elif is_mega_model:
         workflow_file = "/RapidAIO Mega (V2.5).json"
     else:
