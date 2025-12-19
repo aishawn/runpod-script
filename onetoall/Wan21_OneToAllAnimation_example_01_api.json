@@ -12,7 +12,12 @@
     "flags": {},
     "order": 0,
     "mode": 0,
-    "inputs": {},
+    "inputs": {
+      "model_name": "umt5-xxl-enc-bf16.safetensors",
+      "precision": "bf16",
+      "offload_device": "offload_device",
+      "offload_mode": "disabled"
+    },
     "outputs": [
       {
         "name": "wan_t5_model",
@@ -139,7 +144,11 @@
     "flags": {},
     "order": 3,
     "mode": 0,
-    "inputs": {},
+    "inputs": {
+      "vitpose_model": "vitpose-l-wholebody.onnx",
+      "yolo_model": "onnx\\yolov10m.onnx",
+      "onnx_device": "CUDAExecutionProvider"
+    },
     "outputs": [
       {
         "name": "model",
@@ -364,7 +373,13 @@
       "compile_args": [
         "35",
         0
-      ]
+      ],
+      "model": "WanVideo/OneToAll/Wan21-OneToAllAnimation_fp8_e4m3fn_scaled_KJ.safetensors",
+      "base_precision": "fp16_fast",
+      "load_device": "disabled",
+      "offload_device": "offload_device",
+      "quantization": "sageattn",
+      "attention_slicing": "default"
     },
     "outputs": [
       {
@@ -570,7 +585,9 @@
     "flags": {},
     "order": 12,
     "mode": 0,
-    "inputs": {},
+    "inputs": {
+      "model_name": "wanvideo\\Wan2_1_VAE_bf16.safetensors"
+    },
     "outputs": [
       {
         "name": "vae",
@@ -612,7 +629,9 @@
       "t5": [
         "11",
         0
-      ]
+      ],
+      "positive_prompt": "video of anime witch dancing, she's wearing a big hat and a gray robe, the style is soft japanese 2d animation style",
+      "negative_prompt": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
     },
     "outputs": [
       {
@@ -819,7 +838,17 @@
       "images": [
         "141",
         0
-      ]
+      ],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "onetotall_pose",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false
     },
     "outputs": [
       {
@@ -1020,7 +1049,13 @@
       "scheduler": [
         "231",
         3
-      ]
+      ],
+      "steps": 6,
+      "seed": 1,
+      "sampler_name": "euler",
+      "shift": 0,
+      "riflex_freq_index": 1,
+      "force_offload": false
     },
     "outputs": [
       {
@@ -1073,7 +1108,17 @@
     "flags": {},
     "order": 20,
     "mode": 0,
-    "inputs": {},
+    "inputs": {
+      "video": "vid.mp4",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 300,
+      "skip_first_frames": 0,
+      "select_every_nth": 1,
+      "format": "AnimateDiff",
+      "choose video to upload": "image"
+    },
     "outputs": [
       {
         "name": "IMAGE",
@@ -1228,7 +1273,17 @@
       "images": [
         "180",
         2
-      ]
+      ],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "WanVideo_OneToAllAnimation",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false
     },
     "outputs": [
       {
@@ -1510,7 +1565,13 @@
       "scheduler": [
         "231",
         3
-      ]
+      ],
+      "steps": 6,
+      "seed": 1,
+      "sampler_name": "euler",
+      "shift": 0,
+      "riflex_freq_index": 1,
+      "force_offload": false
     },
     "outputs": [
       {
@@ -1673,7 +1734,17 @@
       "images": [
         "263",
         0
-      ]
+      ],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "WanVideo_OneToAllAnimation",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false
     },
     "outputs": [
       {
@@ -1782,7 +1853,17 @@
       "images": [
         "28",
         0
-      ]
+      ],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "WanVideo_OneToAllAnimation",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false
     },
     "outputs": [
       {
@@ -1886,7 +1967,7 @@
     "class_type": "WanVideoScheduler"
   },
   "263": {
-    "type": "dede8476-91a7-4dc1-b735-80cfe6ab21d4",
+    "type": "WanVideoAddOneToAllExtendEmbeds",
     "pos": [
       2639.9052582244144,
       -588.9242489797474
@@ -1981,7 +2062,7 @@
     "class_type": "WanVideoAddOneToAllExtendEmbeds"
   },
   "311": {
-    "type": "70a9c226-a6dc-4e8e-9cb9-f16fd821a543",
+    "type": "WanVideoAddOneToAllExtendEmbeds",
     "pos": [
       5141.819270499038,
       -612.5932904990707
@@ -2075,7 +2156,7 @@
     "class_type": "WanVideoAddOneToAllExtendEmbeds"
   },
   "297": {
-    "type": "cd88a71a-291e-45fd-9414-2c1f20b86257",
+    "type": "WanVideoAddOneToAllExtendEmbeds",
     "pos": [
       3891.4960203442197,
       -598.0509178253698
@@ -2186,7 +2267,17 @@
       "images": [
         "297",
         0
-      ]
+      ],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "WanVideo_OneToAllAnimation",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false
     },
     "outputs": [
       {
@@ -2244,7 +2335,17 @@
       "images": [
         "311",
         0
-      ]
+      ],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "WanVideo_OneToAllAnimation",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false
     },
     "outputs": [
       {

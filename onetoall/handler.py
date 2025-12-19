@@ -726,6 +726,162 @@ def configure_mega_workflow(prompt, job_input, image_path, positive_prompt, nega
             })
 
 
+def fill_missing_inputs_from_widgets(node_id, node):
+    """从 widgets_values 填充缺失的 inputs"""
+    class_type = node.get("class_type", "")
+    if "inputs" not in node:
+        node["inputs"] = {}
+    
+    # 处理字典格式的 widgets_values（如 VHS_VideoCombine）
+    if "widgets_values" in node and isinstance(node["widgets_values"], dict):
+        widgets = node["widgets_values"]
+        for key, value in widgets.items():
+            if key not in ["videopreview"] and key not in node["inputs"]:
+                node["inputs"][key] = value
+        return
+    
+    # 处理列表格式的 widgets_values
+    if "widgets_values" not in node:
+        return
+    
+    widgets = node["widgets_values"]
+    if not isinstance(widgets, list) or len(widgets) == 0:
+        return
+    
+    # 根据节点类型填充缺失的输入
+    if "WanVideoScheduler" in class_type:
+        # widgets: [scheduler, steps, start_step, end_step, shift]
+        if len(widgets) >= 1 and "scheduler" not in node["inputs"]:
+            node["inputs"]["scheduler"] = widgets[0]
+        if len(widgets) >= 2 and "steps" not in node["inputs"]:
+            node["inputs"]["steps"] = widgets[1]
+        if len(widgets) >= 3 and "start_step" not in node["inputs"]:
+            node["inputs"]["start_step"] = widgets[2]
+        if len(widgets) >= 4 and "end_step" not in node["inputs"]:
+            node["inputs"]["end_step"] = widgets[3]
+        if len(widgets) >= 5 and "shift" not in node["inputs"]:
+            node["inputs"]["shift"] = widgets[4]
+    elif "WanVideoAddOneToAllExtendEmbeds" in class_type:
+        # widgets: [num_frames, window_size, if_not_enough_frames]
+        if len(widgets) >= 1 and "num_frames" not in node["inputs"]:
+            node["inputs"]["num_frames"] = widgets[0]
+        if len(widgets) >= 2 and "window_size" not in node["inputs"]:
+            node["inputs"]["window_size"] = widgets[1]
+        if len(widgets) >= 3 and "if_not_enough_frames" not in node["inputs"]:
+            node["inputs"]["if_not_enough_frames"] = widgets[2]
+    elif "WanVideoAddOneToAllPoseEmbeds" in class_type or "WanVideoAddOneToAllReferenceEmbeds" in class_type:
+        # widgets: [strength, start_percent, end_percent]
+        if len(widgets) >= 1 and "strength" not in node["inputs"]:
+            node["inputs"]["strength"] = widgets[0]
+        if len(widgets) >= 2 and "start_percent" not in node["inputs"]:
+            node["inputs"]["start_percent"] = widgets[1]
+        if len(widgets) >= 3 and "end_percent" not in node["inputs"]:
+            node["inputs"]["end_percent"] = widgets[2]
+    elif "ImageBatchExtendWithOverlap" in class_type:
+        # widgets: [overlap, overlap_mode, overlap_side]
+        if len(widgets) >= 1 and "overlap" not in node["inputs"]:
+            node["inputs"]["overlap"] = widgets[0]
+        if len(widgets) >= 2 and "overlap_mode" not in node["inputs"]:
+            node["inputs"]["overlap_mode"] = widgets[1]
+        if len(widgets) >= 3 and "overlap_side" not in node["inputs"]:
+            node["inputs"]["overlap_side"] = widgets[2]
+    elif "GetImageRangeFromBatch" in class_type:
+        # widgets: [start_index, end_index]
+        if len(widgets) >= 1 and "start_index" not in node["inputs"]:
+            node["inputs"]["start_index"] = widgets[0]
+        if len(widgets) >= 2 and "end_index" not in node["inputs"]:
+            node["inputs"]["end_index"] = widgets[1]
+    elif "WanVideoLoraSelect" in class_type:
+        # widgets: [lora, strength]
+        if len(widgets) >= 1 and "lora" not in node["inputs"]:
+            node["inputs"]["lora"] = widgets[0]
+        if len(widgets) >= 2 and "strength" not in node["inputs"]:
+            node["inputs"]["strength"] = widgets[1]
+    elif "WanVideoBlockSwap" in class_type:
+        # widgets: [blocks_to_swap, offload_txt_emb, offload_img_emb]
+        if len(widgets) >= 1 and "blocks_to_swap" not in node["inputs"]:
+            node["inputs"]["blocks_to_swap"] = widgets[0]
+        if len(widgets) >= 2 and "offload_txt_emb" not in node["inputs"]:
+            node["inputs"]["offload_txt_emb"] = widgets[1]
+        if len(widgets) >= 3 and "offload_img_emb" not in node["inputs"]:
+            node["inputs"]["offload_img_emb"] = widgets[2]
+    elif "WanVideoTorchCompileSettings" in class_type:
+        # widgets: [backend, mode, fullgraph, dynamic, ...]
+        if len(widgets) >= 1 and "backend" not in node["inputs"]:
+            node["inputs"]["backend"] = widgets[0]
+        if len(widgets) >= 2 and "mode" not in node["inputs"]:
+            node["inputs"]["mode"] = widgets[1]
+        if len(widgets) >= 3 and "fullgraph" not in node["inputs"]:
+            node["inputs"]["fullgraph"] = widgets[2]
+        if len(widgets) >= 4 and "dynamic" not in node["inputs"]:
+            node["inputs"]["dynamic"] = widgets[3]
+        if len(widgets) >= 5 and "dynamo_cache_size_limit" not in node["inputs"]:
+            node["inputs"]["dynamo_cache_size_limit"] = widgets[4]
+        if len(widgets) >= 6 and "compile_transformer_blocks_only" not in node["inputs"]:
+            node["inputs"]["compile_transformer_blocks_only"] = widgets[5]
+    elif "PoseDetectionOneToAllAnimation" in class_type:
+        # 默认值
+        if "align_to" not in node["inputs"]:
+            node["inputs"]["align_to"] = "head"
+        if "draw_face_points" not in node["inputs"]:
+            node["inputs"]["draw_face_points"] = False
+        if "draw_head" not in node["inputs"]:
+            node["inputs"]["draw_head"] = False
+    elif "ImageResizeKJv2" in class_type:
+        # 默认值
+        if "crop_position" not in node["inputs"]:
+            node["inputs"]["crop_position"] = "center"
+        if "upscale_method" not in node["inputs"]:
+            node["inputs"]["upscale_method"] = "lanczos"
+        if "keep_proportion" not in node["inputs"]:
+            node["inputs"]["keep_proportion"] = True
+        if "pad_color" not in node["inputs"]:
+            node["inputs"]["pad_color"] = 0
+        if "divisible_by" not in node["inputs"]:
+            node["inputs"]["divisible_by"] = 1
+    elif "VHS_LoadVideo" in class_type:
+        # 默认值
+        if "force_rate" not in node["inputs"]:
+            node["inputs"]["force_rate"] = 0
+        if "custom_width" not in node["inputs"]:
+            node["inputs"]["custom_width"] = 0
+        if "custom_height" not in node["inputs"]:
+            node["inputs"]["custom_height"] = 0
+        if "frame_load_cap" not in node["inputs"]:
+            node["inputs"]["frame_load_cap"] = 0
+        if "select_every_nth" not in node["inputs"]:
+            node["inputs"]["select_every_nth"] = 1
+        if "skip_first_frames" not in node["inputs"]:
+            node["inputs"]["skip_first_frames"] = 0
+    elif "WanVideoDecode" in class_type:
+        # 默认值
+        if "tile_x" not in node["inputs"]:
+            node["inputs"]["tile_x"] = 0
+        if "tile_y" not in node["inputs"]:
+            node["inputs"]["tile_y"] = 0
+        if "tile_stride_x" not in node["inputs"]:
+            node["inputs"]["tile_stride_x"] = 0
+        if "tile_stride_y" not in node["inputs"]:
+            node["inputs"]["tile_stride_y"] = 0
+        if "enable_vae_tiling" not in node["inputs"]:
+            node["inputs"]["enable_vae_tiling"] = False
+    elif "WanVideoEncode" in class_type:
+        # 默认值
+        if "tile_x" not in node["inputs"]:
+            node["inputs"]["tile_x"] = 0
+        if "tile_y" not in node["inputs"]:
+            node["inputs"]["tile_y"] = 0
+        if "tile_stride_x" not in node["inputs"]:
+            node["inputs"]["tile_stride_x"] = 0
+        if "tile_stride_y" not in node["inputs"]:
+            node["inputs"]["tile_stride_y"] = 0
+        if "enable_vae_tiling" not in node["inputs"]:
+            node["inputs"]["enable_vae_tiling"] = False
+    elif "GetImageSizeAndCount" in class_type:
+        # 这个节点需要 image 输入，但如果没有，可以跳过（不会影响执行）
+        pass
+
+
 def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, negative_prompt,
                              adjusted_width, adjusted_height, length, steps, seed, cfg, task_id):
     """配置Wan21工作流，使用动态节点查找"""
@@ -810,6 +966,14 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
     if model_node_id:
         # 自动查找可用的Wan21模型
         wan21_model = find_wan21_model()
+        # 转换为相对路径（去掉完整路径前缀）
+        if wan21_model.startswith("/ComfyUI/models/diffusion_models/"):
+            wan21_model = wan21_model.replace("/ComfyUI/models/diffusion_models/", "")
+        elif wan21_model.startswith("/ComfyUI/models/checkpoints/"):
+            wan21_model = wan21_model.replace("/ComfyUI/models/checkpoints/", "")
+        # 处理 Windows 路径分隔符
+        wan21_model = wan21_model.replace("\\", "/")
+        
         if set_node_value(prompt, model_node_id, "model", wan21_model, True):
             logger.info(f"已设置模型节点 {model_node_id} 的模型: {wan21_model}")
         else:
@@ -818,12 +982,23 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
         # 回退到硬编码的节点ID
         logger.warning("未找到WanVideoModelLoader节点，使用硬编码节点ID 22")
         wan21_model = find_wan21_model()
+        # 转换为相对路径
+        if wan21_model.startswith("/ComfyUI/models/diffusion_models/"):
+            wan21_model = wan21_model.replace("/ComfyUI/models/diffusion_models/", "")
+        elif wan21_model.startswith("/ComfyUI/models/checkpoints/"):
+            wan21_model = wan21_model.replace("/ComfyUI/models/checkpoints/", "")
+        wan21_model = wan21_model.replace("\\", "/")
         set_node_value(prompt, "22", "model", wan21_model, True)
     
     # 文本编码节点
     for node_id, node in prompt.items():
         node_type = node.get("class_type", "")
         if "WanVideoTextEncode" in node_type:
+            if "inputs" not in node:
+                node["inputs"] = {}
+            node["inputs"]["positive_prompt"] = positive_prompt
+            node["inputs"]["negative_prompt"] = negative_prompt
+            # 同时更新 widgets_values（如果存在）
             if "widgets_values" in node and len(node["widgets_values"]) > 0:
                 widgets = node["widgets_values"]
                 widgets[0] = positive_prompt
@@ -871,6 +1046,23 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
                 if isinstance(widgets, dict):
                     widgets["save_output"] = True
             node["inputs"]["save_output"] = True
+            # 从 widgets_values 补充缺失的必需输入
+            if "widgets_values" in node and isinstance(node["widgets_values"], dict):
+                widgets = node["widgets_values"]
+                for key in ["filename_prefix", "loop_count", "frame_rate", "pingpong", "format"]:
+                    if key not in node["inputs"] and key in widgets:
+                        node["inputs"][key] = widgets[key]
+            # 如果仍然缺少必需输入，使用默认值
+            if "filename_prefix" not in node["inputs"]:
+                node["inputs"]["filename_prefix"] = f"onetotall_output_{node_id}"
+            if "loop_count" not in node["inputs"]:
+                node["inputs"]["loop_count"] = 0
+            if "frame_rate" not in node["inputs"]:
+                node["inputs"]["frame_rate"] = 16
+            if "pingpong" not in node["inputs"]:
+                node["inputs"]["pingpong"] = False
+            if "format" not in node["inputs"]:
+                node["inputs"]["format"] = "video/h264-mp4"
             logger.info(f"已配置 VHS_VideoCombine 节点 {node_id} 的 save_output=True")
 
 
@@ -1032,6 +1224,12 @@ def handler(job):
     except Exception as e:
         logger.error(f"工作流配置失败: {e}")
         raise
+    
+    # 自动填充缺失的必需输入（在所有配置之后）
+    logger.info("自动填充缺失的必需输入...")
+    for node_id, node in prompt.items():
+        fill_missing_inputs_from_widgets(node_id, node)
+    logger.info("输入填充完成")
     
     # LoRA设置
     if lora_pairs and not is_mega_model:
