@@ -212,6 +212,7 @@ mkdir -p "$WORKDIR/ComfyUI/models/clip_vision"
 mkdir -p "$WORKDIR/ComfyUI/models/text_encoders"
 mkdir -p "$WORKDIR/ComfyUI/models/vae"
 mkdir -p "$WORKDIR/ComfyUI/models/onnx"
+mkdir -p "$WORKDIR/ComfyUI/models/detection"
 
 # ===== 所有工作流共享的基础模型 =====
 # T5 文本编码器和 VAE (所有工作流都需要)
@@ -275,6 +276,34 @@ else
     echo "ViTPose 模型已存在，跳过下载"
 fi
 
+# 创建 detection 目录的符号链接（某些节点可能从 detection 目录读取 ONNX 模型）
+echo "创建 ONNX 模型符号链接..."
+if [ -d "$WORKDIR/ComfyUI/models/onnx" ]; then
+    for file in "$WORKDIR/ComfyUI/models/onnx"/*.onnx "$WORKDIR/ComfyUI/models/onnx"/*.bin; do
+        if [ -f "$file" ]; then
+            ln -sf "$file" "$WORKDIR/ComfyUI/models/detection/$(basename "$file")" 2>/dev/null || true
+        fi
+    done
+    echo "ONNX 模型符号链接创建完成"
+fi
+
+# ===== LoRA 模型 =====
+# Lightx2v LoRA 模型（用于 Wan21_OneToAllAnimation 工作流）
+echo "下载 Lightx2v LoRA 模型..."
+LORA_PATH="$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors"
+if [ ! -f "$LORA_PATH" ]; then
+    mkdir -p "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v"
+    hfd.sh Kijai/WanVideo_comfy \
+          --include "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors" \
+          --tool aria2c \
+          -x 8 -j 8 \
+          --local-dir /tmp/hfd_lora
+    mv /tmp/hfd_lora/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/"
+    rm -rf /tmp/hfd_lora
+else
+    echo "Lightx2v LoRA 模型已存在，跳过下载"
+fi
+
 # ===== 注意：以下模型已移除（仅用于 Wan21_OneToAllAnimation 工作流）=====
 # 如果将来需要支持 MEGA 或标准 Wan22 工作流，可以取消注释以下部分：
 #
@@ -294,6 +323,26 @@ fi
 if [ -f "$SCRIPT_DIR/entrypoint.sh" ]; then
     chmod +x "$SCRIPT_DIR/entrypoint.sh"
 fi
+
+pip install sageattention
+
+# 验证模型文件
+echo "验证模型文件..."
+echo "=== 主模型 ==="
+ls -lh "$WORKDIR/ComfyUI/models/diffusion_models/WanVideo/OneToAll/Wan21-OneToAllAnimation_fp8_e4m3fn_scaled_KJ.safetensors" 2>/dev/null || echo "警告: 主模型未找到"
+
+echo "=== T5 文本编码器 ==="
+ls -lh "$WORKDIR/ComfyUI/models/text_encoders/umt5-xxl-enc-bf16.safetensors" 2>/dev/null || echo "警告: T5 文本编码器未找到"
+
+echo "=== VAE 模型 ==="
+ls -lh "$WORKDIR/ComfyUI/models/vae/Wan2_1_VAE_bf16.safetensors" 2>/dev/null || echo "警告: VAE 模型未找到"
+
+echo "=== LoRA 模型 ==="
+ls -lh "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors" 2>/dev/null || echo "警告: LoRA 模型未找到"
+
+echo "=== ONNX 模型 ==="
+ls -lh "$WORKDIR/ComfyUI/models/onnx/yolov10m.onnx" 2>/dev/null || echo "警告: YOLO 模型未找到"
+ls -lh "$WORKDIR/ComfyUI/models/onnx/vitpose-l-wholebody.onnx" 2>/dev/null || echo "警告: ViTPose 模型未找到"
 
 echo "安装和配置完成！"
 

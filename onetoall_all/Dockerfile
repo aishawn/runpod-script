@@ -96,7 +96,7 @@ RUN pip install onnx==1.16.0 onnxruntime-gpu==1.18.0 && \
     pip install --force-reinstall --no-deps "numpy<2.0" || true
 
 # Create model directories
-RUN mkdir -p /ComfyUI/models/diffusion_models /ComfyUI/models/loras /ComfyUI/models/clip_vision /ComfyUI/models/text_encoders /ComfyUI/models/vae /ComfyUI/models/onnx
+RUN mkdir -p /ComfyUI/models/diffusion_models /ComfyUI/models/loras /ComfyUI/models/clip_vision /ComfyUI/models/text_encoders /ComfyUI/models/vae /ComfyUI/models/onnx /ComfyUI/models/detection
 
 # ===== 所有工作流共享的基础模型 =====
 # T5 文本编码器和 VAE (所有工作流都需要)
@@ -139,6 +139,26 @@ RUN hfd.sh JunkyByte/easy_ViTPose \
     mv /tmp/hfd_vitpose/onnx/wholebody/vitpose-l-wholebody.onnx /ComfyUI/models/onnx/ && \
     rm -rf /tmp/hfd_vitpose
 
+# 创建 detection 目录的符号链接（某些节点可能从 detection 目录读取 ONNX 模型）
+RUN if [ -d /ComfyUI/models/onnx ]; then \
+        for file in /ComfyUI/models/onnx/*.onnx /ComfyUI/models/onnx/*.bin; do \
+            if [ -f "$file" ]; then \
+                ln -sf "$file" "/ComfyUI/models/detection/$(basename "$file")" 2>/dev/null || true; \
+            fi; \
+        done; \
+    fi
+
+# ===== LoRA 模型 =====
+# Lightx2v LoRA 模型（用于 Wan21_OneToAllAnimation 工作流）
+RUN mkdir -p /ComfyUI/models/loras/WanVideo/Lightx2v && \
+    hfd.sh Kijai/WanVideo_comfy \
+      --include "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors" \
+      --tool aria2c \
+      -x 8 -j 8 \
+      --local-dir /tmp/hfd_lora && \
+    mv /tmp/hfd_lora/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors /ComfyUI/models/loras/WanVideo/Lightx2v/ && \
+    rm -rf /tmp/hfd_lora
+
 # ===== 注意：以下模型已移除（仅用于 Wan21_OneToAllAnimation 工作流）=====
 # 如果将来需要支持 MEGA 或标准 Wan22 工作流，可以取消注释以下部分：
 #
@@ -148,6 +168,9 @@ RUN hfd.sh JunkyByte/easy_ViTPose \
 #
 # # 标准 Wan22 工作流可选模型
 # RUN hfd.sh lightx2v/Wan2.2-Lightning ...
+
+# Install sageattention
+RUN pip install sageattention
 
 COPY . .
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml

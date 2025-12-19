@@ -200,7 +200,7 @@
       },
       "widgets_values": [
         "vitpose-l-wholebody.onnx",
-        "onnx\\yolov10m.onnx",
+        "yolov10m.onnx",
         "CUDAExecutionProvider"
       ]
     },
@@ -771,7 +771,7 @@
         "Node name for S&R": "WanVideoModelLoader"
       },
       "widgets_values": [
-        "WanVideo\\OneToAll\\Wan21-OneToAllAnimation_fp8_e4m3fn_scaled_KJ.safetensors",
+        "WanVideo/OneToAll/Wan21-OneToAllAnimation_fp8_e4m3fn_scaled_KJ.safetensors",
         "fp16_fast",
         "disabled",
         "offload_device",
@@ -956,7 +956,7 @@
         "Node name for S&R": "WanVideoLoraSelect"
       },
       "widgets_values": [
-        "WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors",
+        "WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors",
         1,
         false,
         false
@@ -1002,7 +1002,7 @@
         "Node name for S&R": "WanVideoVAELoader"
       },
       "widgets_values": [
-        "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+        "Wan2_1_VAE_bf16.safetensors",
         "bf16",
         false
       ],
