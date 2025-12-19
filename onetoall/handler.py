@@ -859,6 +859,19 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
             if "inputs" not in node:
                 node["inputs"] = {}
             node["inputs"]["num_frames"] = length
+    
+    # 确保 VHS_VideoCombine 节点正确配置（保存输出）
+    for node_id, node in prompt.items():
+        if "VHS_VideoCombine" in node.get("class_type", ""):
+            if "inputs" not in node:
+                node["inputs"] = {}
+            # 确保 save_output 设置为 True
+            if "widgets_values" in node:
+                widgets = node["widgets_values"]
+                if isinstance(widgets, dict):
+                    widgets["save_output"] = True
+            node["inputs"]["save_output"] = True
+            logger.info(f"已配置 VHS_VideoCombine 节点 {node_id} 的 save_output=True")
 
 
 def configure_standard_workflow(prompt, image_path, end_image_path_local, positive_prompt,
