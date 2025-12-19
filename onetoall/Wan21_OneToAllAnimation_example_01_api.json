@@ -990,7 +990,12 @@
       "samples": [
         "163",
         0
-      ]
+      ],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128
     },
     "outputs": [
       {
@@ -1393,7 +1398,12 @@
       "image": [
         "162",
         1
-      ]
+      ],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128
     },
     "outputs": [
       {
@@ -1806,7 +1816,12 @@
       "samples": [
         "27",
         0
-      ]
+      ],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128
     },
     "outputs": [
       {
@@ -1917,7 +1932,13 @@
     "flags": {},
     "order": 45,
     "mode": 0,
-    "inputs": {},
+    "inputs": {
+      "scheduler": "euler",
+      "steps": 6,
+      "start_step": 7,
+      "end_step": 0,
+      "shift": -1
+    },
     "outputs": [
       {
         "name": "sigmas",
