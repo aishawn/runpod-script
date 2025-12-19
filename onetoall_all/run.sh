@@ -290,15 +290,15 @@ fi
 # ===== LoRA 模型 =====
 # Lightx2v LoRA 模型（用于 Wan21_OneToAllAnimation 工作流）
 echo "下载 Lightx2v LoRA 模型..."
-LORA_PATH="$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors"
+LORA_PATH="$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors"
 if [ ! -f "$LORA_PATH" ]; then
     mkdir -p "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v"
     hfd.sh Kijai/WanVideo_comfy \
-          --include "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors" \
+          --include "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors" \
           --tool aria2c \
           -x 8 -j 8 \
           --local-dir /tmp/hfd_lora
-    mv /tmp/hfd_lora/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/"
+    mv /tmp/hfd_lora/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/"
     rm -rf /tmp/hfd_lora
 else
     echo "Lightx2v LoRA 模型已存在，跳过下载"
@@ -338,7 +338,7 @@ echo "=== VAE 模型 ==="
 ls -lh "$WORKDIR/ComfyUI/models/vae/Wan2_1_VAE_bf16.safetensors" 2>/dev/null || echo "警告: VAE 模型未找到"
 
 echo "=== LoRA 模型 ==="
-ls -lh "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors" 2>/dev/null || echo "警告: LoRA 模型未找到"
+ls -lh "$WORKDIR/ComfyUI/models/loras/WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors" 2>/dev/null || echo "警告: LoRA 模型未找到"
 
 echo "=== ONNX 模型 ==="
 ls -lh "$WORKDIR/ComfyUI/models/onnx/yolov10m.onnx" 2>/dev/null || echo "警告: YOLO 模型未找到"
