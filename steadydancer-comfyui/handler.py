@@ -11,6 +11,7 @@ import urllib.parse
 import binascii
 import subprocess
 import time
+import shutil
 
 # 日志配置
 logging.basicConfig(level=logging.INFO)
@@ -147,12 +148,28 @@ def process_input(input_data, temp_dir, output_filename, input_type):
     """处理输入数据并返回文件路径（绝对路径）"""
     if input_type == "path":
         logger.info(f"📁 路径输入: {input_data}")
-        # 如果是绝对路径，直接返回；如果是相对路径，转换为绝对路径
-        if os.path.isabs(input_data):
+        # 如果文件已经在 /ComfyUI/input/ 目录下，直接返回
+        if input_data.startswith("/ComfyUI/input/"):
             return input_data
+        
+        # 如果文件不在 /ComfyUI/input/ 目录下，需要复制到目标目录
+        if os.path.exists(input_data):
+            os.makedirs(temp_dir, exist_ok=True)
+            dest_path = os.path.abspath(os.path.join(temp_dir, output_filename))
+            shutil.copy2(input_data, dest_path)
+            logger.info(f"✅ 已复制文件: {input_data} -> {dest_path}")
+            # 验证文件是否成功复制
+            if os.path.exists(dest_path):
+                logger.info(f"✅ 文件复制验证成功: {dest_path} (大小: {os.path.getsize(dest_path)} 字节)")
+            else:
+                logger.error(f"❌ 文件复制失败: {dest_path} 不存在")
+            return dest_path
         else:
-            # 相对路径，假设相对于 /ComfyUI/input/
-            return os.path.abspath(os.path.join("/ComfyUI/input", input_data))
+            # 文件不存在，尝试作为相对路径处理
+            abs_path = os.path.abspath(os.path.join("/ComfyUI/input", input_data))
+            if os.path.exists(abs_path):
+                return abs_path
+            raise FileNotFoundError(f"文件不存在: {input_data}")
     elif input_type == "url":
         logger.info(f"🌐 URL输入: {input_data}")
         os.makedirs(temp_dir, exist_ok=True)
@@ -714,8 +731,16 @@ def configure_steadydancer_nodes(prompt, job_input, task_id, image_path, adjuste
         # image_path 已经是绝对路径，但需要转换为相对于 /ComfyUI/input/ 的路径
         if image_path and image_path.startswith("/ComfyUI/input/"):
             image_relative_path = image_path.replace("/ComfyUI/input/", "")
+            logger.info(f"节点76: 图像路径转换: {image_path} -> {image_relative_path}")
         else:
             image_relative_path = f"{task_id}/input_image.jpg"
+            logger.warning(f"节点76: 图像路径不在 /ComfyUI/input/ 下，使用默认路径: {image_relative_path}")
+        # 验证文件是否存在
+        full_path = os.path.join("/ComfyUI/input", image_relative_path)
+        if os.path.exists(full_path):
+            logger.info(f"节点76: 验证文件存在: {full_path}")
+        else:
+            logger.error(f"节点76: 文件不存在: {full_path}")
         configure_node(prompt, "76", {
             "widgets_list": {"image": (0, image_relative_path)},
             "inputs": {"image": image_relative_path}
@@ -737,8 +762,16 @@ def configure_steadydancer_nodes(prompt, job_input, task_id, image_path, adjuste
         # 使用绝对路径（ComfyUI 期望相对于 /ComfyUI/input/ 的路径或绝对路径）
         if reference_video_path.startswith("/ComfyUI/input/"):
             video_relative_path = reference_video_path.replace("/ComfyUI/input/", "")
+            logger.info(f"节点75: 视频路径转换: {reference_video_path} -> {video_relative_path}")
         else:
             video_relative_path = f"{task_id}/reference_video.mp4"
+            logger.warning(f"节点75: 视频路径不在 /ComfyUI/input/ 下，使用默认路径: {video_relative_path}")
+        # 验证文件是否存在
+        full_path = os.path.join("/ComfyUI/input", video_relative_path)
+        if os.path.exists(full_path):
+            logger.info(f"节点75: 验证文件存在: {full_path}")
+        else:
+            logger.error(f"节点75: 文件不存在: {full_path}")
         configure_node(prompt, "75", {
             "widgets_dict": {"video": video_relative_path},
             "inputs": {"video": video_relative_path}
