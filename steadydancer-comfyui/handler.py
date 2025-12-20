@@ -144,10 +144,15 @@ def supplement_node_inputs_from_widgets(node_id, node_data, widgets_values):
 # ==================== 输入处理 ====================
 
 def process_input(input_data, temp_dir, output_filename, input_type):
-    """处理输入数据并返回文件路径"""
+    """处理输入数据并返回文件路径（绝对路径）"""
     if input_type == "path":
         logger.info(f"📁 路径输入: {input_data}")
-        return input_data
+        # 如果是绝对路径，直接返回；如果是相对路径，转换为绝对路径
+        if os.path.isabs(input_data):
+            return input_data
+        else:
+            # 相对路径，假设相对于 /ComfyUI/input/
+            return os.path.abspath(os.path.join("/ComfyUI/input", input_data))
     elif input_type == "url":
         logger.info(f"🌐 URL输入: {input_data}")
         os.makedirs(temp_dir, exist_ok=True)
@@ -705,7 +710,12 @@ def configure_steadydancer_nodes(prompt, job_input, task_id, image_path, adjuste
     
     # 节点76: LoadImage
     if "76" in prompt:
-        image_relative_path = f"{task_id}/input_image.jpg"
+        # 使用绝对路径（ComfyUI 期望相对于 /ComfyUI/input/ 的路径或绝对路径）
+        # image_path 已经是绝对路径，但需要转换为相对于 /ComfyUI/input/ 的路径
+        if image_path and image_path.startswith("/ComfyUI/input/"):
+            image_relative_path = image_path.replace("/ComfyUI/input/", "")
+        else:
+            image_relative_path = f"{task_id}/input_image.jpg"
         configure_node(prompt, "76", {
             "widgets_list": {"image": (0, image_relative_path)},
             "inputs": {"image": image_relative_path}
@@ -724,7 +734,11 @@ def configure_steadydancer_nodes(prompt, job_input, task_id, image_path, adjuste
             break
     
     if reference_video_path and "75" in prompt:
-        video_relative_path = f"{task_id}/reference_video.mp4"
+        # 使用绝对路径（ComfyUI 期望相对于 /ComfyUI/input/ 的路径或绝对路径）
+        if reference_video_path.startswith("/ComfyUI/input/"):
+            video_relative_path = reference_video_path.replace("/ComfyUI/input/", "")
+        else:
+            video_relative_path = f"{task_id}/reference_video.mp4"
         configure_node(prompt, "75", {
             "widgets_dict": {"video": video_relative_path},
             "inputs": {"video": video_relative_path}

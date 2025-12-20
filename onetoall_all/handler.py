@@ -2683,19 +2683,24 @@ def handler(job):
             
             # 最终强制验证：如果 low_mem_load 为 false，必须禁用 merge_loras
             # 这是为了避免 "Set LoRA node does not use low_mem_load and can't merge LoRAs" 错误
+            # 无论之前是否设置过，都强制验证和修正
             low_mem_load = node["inputs"].get("low_mem_load", False)
+            current_merge_loras = node["inputs"].get("merge_loras")
+            
             if not low_mem_load:
-                # 无论 merge_loras 当前值是什么，都强制设置为 False
-                if node["inputs"].get("merge_loras", False):
-                    node["inputs"]["merge_loras"] = False
-                    logger.warning(f"节点 {node_id} (WanVideoLoraSelect): 强制禁用 merge_loras（因为 low_mem_load 为 false）")
-                elif "merge_loras" not in node["inputs"]:
-                    node["inputs"]["merge_loras"] = False
-                    logger.info(f"节点 {node_id} (WanVideoLoraSelect): 设置默认 merge_loras=False（因为 low_mem_load 为 false）")
+                # 如果 low_mem_load 为 false，无论 merge_loras 当前值是什么，都强制设置为 False
+                node["inputs"]["merge_loras"] = False
+                if current_merge_loras is True:
+                    logger.warning(f"节点 {node_id} (WanVideoLoraSelect): 强制禁用 merge_loras（从 True 改为 False，因为 low_mem_load 为 false）")
+                elif current_merge_loras is None or "merge_loras" not in node["inputs"]:
+                    logger.info(f"节点 {node_id} (WanVideoLoraSelect): 设置 merge_loras=False（因为 low_mem_load 为 false）")
                 else:
-                    # 确保值为 False
-                    node["inputs"]["merge_loras"] = False
                     logger.info(f"节点 {node_id} (WanVideoLoraSelect): 确认 merge_loras=False（因为 low_mem_load 为 false）")
+            else:
+                # 如果 low_mem_load 为 true，确保 merge_loras 已设置（即使为 false 也可以）
+                if "merge_loras" not in node["inputs"]:
+                    node["inputs"]["merge_loras"] = False
+                    logger.info(f"节点 {node_id} (WanVideoLoraSelect): 设置默认 merge_loras=False")
             
             # 规范化 LoRA 路径
             if "lora" in node["inputs"]:
