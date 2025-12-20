@@ -2766,6 +2766,154 @@ def handler(job):
                 raise Exception("无法连接到ComfyUI服务器")
             time.sleep(1)
     
+    # 在提交 prompt 之前，进行最终的类型检查和修复
+    logger.info("进行最终的 VHS_VideoCombine 类型检查和修复...")
+    try:
+        # 获取 ComfyUI 的节点信息，用于确定输出类型
+        url = f"http://{server_address}:8188/object_info"
+        with urllib.request.urlopen(url, timeout=10) as response:
+            object_info = json.loads(response.read())
+    except Exception as e:
+        logger.warning(f"无法获取 object_info，将使用备用方法: {e}")
+        object_info = {}
+    
+    # 修复所有 VHS_VideoCombine 节点的类型不匹配
+    vhs_fixes_count = 0
+    for node_id, node in prompt.items():
+        if "VHS_VideoCombine" not in node.get("class_type", ""):
+            continue
+        
+        if "inputs" not in node or "images" not in node["inputs"]:
+            continue
+        
+        images_input = node["inputs"]["images"]
+        if not isinstance(images_input, list) or len(images_input) < 1:
+            continue
+        
+        source_node_id = str(images_input[0])
+        if source_node_id not in prompt:
+            logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 不在 prompt 中")
+            continue
+        
+        source_node = prompt[source_node_id]
+        source_class = source_node.get("class_type", "")
+        source_type = source_node.get("type", "")
+        
+        # 检查是否是子图节点（UUID 格式）
+        is_uuid_subgraph = (
+            isinstance(source_type, str) and 
+            len(source_type) > 10 and 
+            "-" in source_type and 
+            source_type.count("-") >= 4
+        )
+        
+        # 检查源节点是否可能输出 WANVIDIMAGE_EMBEDS
+        is_extend_node = (
+            "WanVideoAddOneToAllExtendEmbeds" in source_class or
+            "ExtendEmbeds" in source_class or
+            "extend" in source_class.lower() or
+            is_uuid_subgraph
+        )
+        
+        # 从 object_info 获取节点的输出信息
+        source_output_info = None
+        if source_class in object_info:
+            source_output_info = object_info[source_class].get("output", [])
+        
+        # 从原始工作流获取输出定义
+        original_node = None
+        original_outputs = None
+        if "nodes" in workflow_data:
+            for orig_node in workflow_data.get("nodes", []):
+                if str(orig_node.get("id")) == source_node_id:
+                    original_node = orig_node
+                    original_outputs = orig_node.get("outputs", [])
+                    break
+        
+        # 如果是子图节点，尝试从子图定义中获取输出
+        if is_uuid_subgraph and not original_outputs and "definitions" in workflow_data:
+            for subgraph in workflow_data.get("definitions", {}).get("subgraphs", []):
+                if subgraph.get("id") == source_type:
+                    original_outputs = subgraph.get("outputs", [])
+                    logger.debug(f"节点 {source_node_id}: 从子图定义获取 {len(original_outputs)} 个输出")
+                    break
+        
+        # 确定当前连接的输出索引
+        current_output_idx = images_input[1] if len(images_input) > 1 else 0
+        
+        # 检查当前输出类型
+        current_output_type = None
+        if original_outputs and current_output_idx < len(original_outputs):
+            current_output = original_outputs[current_output_idx]
+            current_output_type = current_output.get("type", "")
+        
+        # 如果需要修复（当前输出是 WANVIDIMAGE_EMBEDS 或源节点是扩展节点）
+        needs_fix = (
+            current_output_type == "WANVIDIMAGE_EMBEDS" or
+            (is_extend_node and current_output_type != "IMAGE") or
+            (is_uuid_subgraph and current_output_type != "IMAGE")
+        )
+        
+        if needs_fix:
+            # 查找 IMAGE 类型的输出
+            image_output_idx = None
+            
+            # 优先从原始工作流查找
+            if original_outputs:
+                # 首先查找 extended_images 输出
+                for idx, output in enumerate(original_outputs):
+                    output_type = output.get("type", "")
+                    output_name = output.get("name", "").lower()
+                    
+                    if output_type == "IMAGE":
+                        if ("extended_images" in output_name or "extend" in output_name):
+                            image_output_idx = idx
+                            logger.debug(f"节点 {source_node_id}: 找到 extended_images 输出，索引 {idx}")
+                            break
+                
+                # 如果没找到 extended_images，查找任何 IMAGE 输出
+                if image_output_idx is None:
+                    for idx, output in enumerate(original_outputs):
+                        output_type = output.get("type", "")
+                        if output_type == "IMAGE":
+                            image_output_idx = idx
+                            logger.debug(f"节点 {source_node_id}: 找到 IMAGE 输出，索引 {idx}")
+                            break
+            
+            # 如果从原始工作流没找到，尝试从 object_info 查找
+            if image_output_idx is None and source_output_info:
+                for idx, output_name in enumerate(source_output_info):
+                    # object_info 的输出名称通常是 ["IMAGE", "WANVIDIMAGE_EMBEDS", ...]
+                    if isinstance(output_name, (str, list)):
+                        output_str = str(output_name).upper()
+                        if "IMAGE" in output_str and "WANVIDIMAGE_EMBEDS" not in output_str:
+                            image_output_idx = idx
+                            logger.debug(f"节点 {source_node_id}: 从 object_info 找到 IMAGE 输出，索引 {idx}")
+                            break
+            
+            # 如果找到了 IMAGE 输出，修复连接
+            if image_output_idx is not None:
+                if len(images_input) < 2:
+                    images_input.append(image_output_idx)
+                else:
+                    images_input[1] = image_output_idx
+                vhs_fixes_count += 1
+                logger.info(f"✅ 修复节点 {node_id} (VHS_VideoCombine): images 输入从节点 {source_node_id} "
+                           f"({source_class}) 的输出索引 {current_output_idx} ({current_output_type or 'unknown'}) -> {image_output_idx} (IMAGE)")
+            else:
+                logger.warning(f"⚠️ 节点 {node_id} (VHS_VideoCombine): 无法找到节点 {source_node_id} "
+                             f"({source_class}) 的 IMAGE 类型输出")
+                logger.warning(f"   当前输出索引: {current_output_idx}, 输出类型: {current_output_type}")
+                logger.warning(f"   可用输出数量: {len(original_outputs) if original_outputs else 0}")
+                if original_outputs:
+                    for idx, output in enumerate(original_outputs):
+                        logger.warning(f"     输出 {idx}: {output.get('type', 'unknown')} ({output.get('name', 'unnamed')})")
+    
+    if vhs_fixes_count > 0:
+        logger.info(f"修复了 {vhs_fixes_count} 个 VHS_VideoCombine 节点的类型不匹配问题")
+    else:
+        logger.info("未发现需要修复的 VHS_VideoCombine 节点")
+    
     ws_url = f"ws://{server_address}:8188/ws?clientId={client_id}"
     ws = websocket.WebSocket()
     for attempt in range(36):
