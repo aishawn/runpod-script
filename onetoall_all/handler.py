@@ -2063,6 +2063,32 @@ def handler(job):
                                 node_type = orig_node.get("type", "")
                                 is_uuid_subgraph = isinstance(node_type, str) and len(node_type) > 10 and "-" in node_type and node_type.count("-") >= 4
                                 
+                                # 对于 UUID 子图节点，需要从子图定义中查找输出
+                                if is_uuid_subgraph and "definitions" in workflow_data and "subgraphs" in workflow_data["definitions"]:
+                                    # 查找子图定义
+                                    for subgraph in workflow_data["definitions"]["subgraphs"]:
+                                        if subgraph.get("id") == node_type:
+                                            # 从子图的 outputs 中查找 extended_images
+                                            subgraph_outputs = subgraph.get("outputs", [])
+                                            logger.debug(f"节点 {source_node_id}: 子图 {node_type} 有 {len(subgraph_outputs)} 个输出")
+                                            for sub_idx, sub_output in enumerate(subgraph_outputs):
+                                                sub_output_name = sub_output.get("name", "").lower()
+                                                sub_output_type = sub_output.get("type", "")
+                                                logger.debug(f"  输出 {sub_idx}: {sub_output_name} ({sub_output_type})")
+                                                if sub_output_type == "IMAGE" and ("extended_images" in sub_output_name or "extend" in sub_output_name):
+                                                    # 找到 extended_images 输出，使用这个索引
+                                                    if len(images_input) < 2:
+                                                        images_input.append(sub_idx)
+                                                    else:
+                                                        images_input[1] = sub_idx
+                                                    type_mismatch_fixes.append(
+                                                        f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入从节点 {source_node_id} "
+                                                        f"的输出索引 {current_output_idx} ({current_output_type or 'unknown'}) -> {sub_idx} (IMAGE, extended_images)"
+                                                    )
+                                                    logger.info(type_mismatch_fixes[-1])
+                                                    break
+                                            break
+                                
                                 # 如果源节点是 WanVideoAddOneToAllExtendEmbeds（包括 UUID 子图节点），总是查找 IMAGE 输出
                                 # 对于 UUID 子图节点，即使输出定义显示为 IMAGE，实际执行时可能输出 WANVIDIMAGE_EMBEDS
                                 if "WanVideoAddOneToAllExtendEmbeds" in source_class or is_uuid_subgraph or current_output_type == "WANVIDIMAGE_EMBEDS":
@@ -2389,17 +2415,45 @@ def handler(job):
                 for orig_node in workflow_data.get("nodes", []):
                     if str(orig_node.get("id")) == node_id:
                         widgets_values = orig_node.get("widgets_values", [])
+                        logger.debug(f"节点 {node_id}: widgets_values = {widgets_values}")
                         if isinstance(widgets_values, list) and len(widgets_values) >= 3:
                             # widgets_values 格式: [vitpose_model, yolo_model, onnx_device]
+                            # 确保值是字符串类型
+                            vitpose_val = widgets_values[0] if len(widgets_values) > 0 else "vitpose-l-wholebody.onnx"
+                            yolo_val = widgets_values[1] if len(widgets_values) > 1 else "yolov10m.onnx"
+                            onnx_device_val = widgets_values[2] if len(widgets_values) > 2 else "CUDAExecutionProvider"
+                            
+                            # 确保值是字符串，如果是数字则使用默认值
+                            if not isinstance(vitpose_val, str):
+                                logger.warning(f"节点 {node_id}: vitpose_model 值不是字符串 ({vitpose_val})，使用默认值")
+                                vitpose_val = "vitpose-l-wholebody.onnx"
+                            if not isinstance(yolo_val, str):
+                                logger.warning(f"节点 {node_id}: yolo_model 值不是字符串 ({yolo_val})，使用默认值")
+                                yolo_val = "yolov10m.onnx"
+                            if not isinstance(onnx_device_val, str):
+                                logger.warning(f"节点 {node_id}: onnx_device 值不是字符串 ({onnx_device_val})，使用默认值")
+                                onnx_device_val = "CUDAExecutionProvider"
+                            
                             if "vitpose_model" not in node["inputs"]:
-                                node["inputs"]["vitpose_model"] = widgets_values[0] if len(widgets_values) > 0 else "vitpose-l-wholebody.onnx"
-                                logger.info(f"节点 {node_id}: 设置 vitpose_model={node['inputs']['vitpose_model']}")
+                                node["inputs"]["vitpose_model"] = vitpose_val
+                                logger.info(f"节点 {node_id}: 设置 vitpose_model={vitpose_val}")
                             if "yolo_model" not in node["inputs"]:
-                                node["inputs"]["yolo_model"] = widgets_values[1] if len(widgets_values) > 1 else "yolov10m.onnx"
-                                logger.info(f"节点 {node_id}: 设置 yolo_model={node['inputs']['yolo_model']}")
+                                node["inputs"]["yolo_model"] = yolo_val
+                                logger.info(f"节点 {node_id}: 设置 yolo_model={yolo_val}")
                             if "onnx_device" not in node["inputs"]:
-                                node["inputs"]["onnx_device"] = widgets_values[2] if len(widgets_values) > 2 else "CUDAExecutionProvider"
-                                logger.info(f"节点 {node_id}: 设置 onnx_device={node['inputs']['onnx_device']}")
+                                node["inputs"]["onnx_device"] = onnx_device_val
+                                logger.info(f"节点 {node_id}: 设置 onnx_device={onnx_device_val}")
+                        else:
+                            # 如果 widgets_values 格式不正确，使用默认值
+                            if "vitpose_model" not in node["inputs"]:
+                                node["inputs"]["vitpose_model"] = "vitpose-l-wholebody.onnx"
+                                logger.info(f"节点 {node_id}: 使用默认 vitpose_model=vitpose-l-wholebody.onnx")
+                            if "yolo_model" not in node["inputs"]:
+                                node["inputs"]["yolo_model"] = "yolov10m.onnx"
+                                logger.info(f"节点 {node_id}: 使用默认 yolo_model=yolov10m.onnx")
+                            if "onnx_device" not in node["inputs"]:
+                                node["inputs"]["onnx_device"] = "CUDAExecutionProvider"
+                                logger.info(f"节点 {node_id}: 使用默认 onnx_device=CUDAExecutionProvider")
                         break
         
         # WanVideoLoraSelect: 修复 LoRA 路径格式
@@ -2580,5 +2634,5 @@ def handler(job):
 
 
 if __name__ == "__main__":
-    print("Starting handler v5...")
+    print("Starting handler v6...")
     runpod.serverless.start({"handler": handler})
