@@ -246,24 +246,39 @@ def get_videos(ws, prompt, is_mega_model=False):
                 if images_input and isinstance(images_input, list) and len(images_input) > 0:
                     source_node_id = str(images_input[0])
                     source_node_class = prompt.get(source_node_id, {}).get("class_type", "unknown") if source_node_id in prompt else "unknown"
+                    source_in_prompt = source_node_id in prompt
+                    logger.warning(f"   节点 {node_id}: 源节点 {source_node_id} ({source_node_class}) {'在prompt中' if source_in_prompt else '不在prompt中'}")
+                    
                     if source_node_id in all_output_nodes:
-                        logger.warning(f"   节点 {node_id}: 源节点 {source_node_id} ({source_node_class}) 已执行，但节点 {node_id} 未执行（可能因为其他原因）")
+                        logger.warning(f"      源节点 {source_node_id} 已执行，但节点 {node_id} 未执行（可能因为其他原因）")
                         # 检查源节点是否有输出
                         source_output = history['outputs'].get(source_node_id, {})
                         source_output_keys = list(source_output.keys())
                         logger.warning(f"      源节点 {source_node_id} 的输出字段: {source_output_keys}")
                     else:
-                        logger.warning(f"   节点 {node_id}: 源节点 {source_node_id} ({source_node_class}) 未执行，导致节点 {node_id} 未执行")
-                        # 检查源节点的依赖链
-                        if source_node_id in prompt:
+                        logger.warning(f"      源节点 {source_node_id} 未执行，导致节点 {node_id} 未执行")
+                        # 检查源节点是否在prompt中
+                        if source_in_prompt:
                             source_node = prompt[source_node_id]
-                            source_images_input = source_node.get("inputs", {}).get("image", None) or source_node.get("inputs", {}).get("images", None)
-                            if source_images_input and isinstance(source_images_input, list) and len(source_images_input) > 0:
-                                upstream_node_id = str(source_images_input[0])
-                                upstream_executed = upstream_node_id in all_output_nodes
-                                logger.warning(f"      上游节点 {upstream_node_id} 执行状态: {'已执行' if upstream_executed else '未执行'}")
+                            # 检查源节点的输入连接
+                            source_inputs = source_node.get("inputs", {})
+                            logger.warning(f"      源节点 {source_node_id} 的输入: {list(source_inputs.keys())}")
+                            
+                            # 检查关键输入
+                            for input_key in ["image", "images", "latent", "model", "positive", "negative"]:
+                                if input_key in source_inputs:
+                                    input_value = source_inputs[input_key]
+                                    if isinstance(input_value, list) and len(input_value) > 0:
+                                        upstream_node_id = str(input_value[0])
+                                        upstream_in_prompt = upstream_node_id in prompt
+                                        upstream_executed = upstream_node_id in all_output_nodes
+                                        logger.warning(f"        输入 {input_key} -> 节点 {upstream_node_id} ({'在prompt中' if upstream_in_prompt else '不在prompt中'}, {'已执行' if upstream_executed else '未执行'})")
+                        else:
+                            logger.warning(f"      源节点 {source_node_id} 不在prompt中（可能在转换时被跳过）")
                 else:
-                    logger.warning(f"   节点 {node_id}: 输入连接无效或缺失")
+                    logger.warning(f"   节点 {node_id}: 输入连接无效或缺失: {images_input}")
+            else:
+                logger.warning(f"   节点 {node_id}: 不在prompt中（可能在转换时被跳过）")
     
     if executed_vhs_nodes:
         logger.info(f"✅ 已执行的 VHS_VideoCombine 节点 ({len(executed_vhs_nodes)} 个): {executed_vhs_nodes}")
@@ -1562,6 +1577,16 @@ def handler(job):
                 "585": job_input.get("overlapping_frames", 1)
             }
         prompt = convert_nodes_to_prompt_format(workflow_data, logic_node_values, getnode_class_name)
+        
+        # 诊断：检查关键节点是否在prompt中
+        key_nodes_to_check = ["28", "180", "263", "297", "311"]  # 这些是VHS_VideoCombine节点依赖的源节点
+        logger.info(f"🔍 检查关键节点是否在prompt中:")
+        for node_id in key_nodes_to_check:
+            if node_id in prompt:
+                node_class = prompt[node_id].get("class_type", "unknown")
+                logger.info(f"   节点 {node_id} ({node_class}): 在prompt中 ✓")
+            else:
+                logger.warning(f"   节点 {node_id}: 不在prompt中 ✗ (可能在转换时被跳过)")
     else:
         prompt = workflow_data
     
