@@ -314,7 +314,7 @@ def load_workflow(workflow_path):
         raise
 
 def convert_workflow_nodes_to_prompt(workflow_data):
-    """将 nodes 数组格式转换为节点 ID key 格式（简化版核心逻辑）"""
+    """将 nodes 数组格式转换为节点 ID key 格式（支持 SetNode/GetNode 解析）"""
     if "nodes" not in workflow_data:
         return workflow_data
     
@@ -322,14 +322,67 @@ def convert_workflow_nodes_to_prompt(workflow_data):
     valid_node_ids = set()
     all_nodes_map = {}
     
-    # 收集有效节点
+    # 收集所有节点
     for node in workflow_data["nodes"]:
         node_id = str(node["id"]).lstrip('#')
         all_nodes_map[node_id] = node
         if not should_skip_node(node.get("type", "")):
             valid_node_ids.add(node_id)
     
-    # 建立 links 映射（简化版，省略 GetNode/SetNode 复杂解析）
+    # 建立 SetNode 映射（解析 SetNode 到源节点的关系）
+    setnode_source_map = {}
+    def resolve_setnode_source(setnode_node_id, visited=None):
+        """递归解析 SetNode 的源节点"""
+        if visited is None:
+            visited = set()
+        if setnode_node_id in visited:
+            return None
+        visited.add(setnode_node_id)
+        
+        setnode_node = all_nodes_map.get(setnode_node_id)
+        if not setnode_node or setnode_node.get("type") != "SetNode":
+            return None
+        
+        if "inputs" in setnode_node and isinstance(setnode_node["inputs"], list):
+            for input_item in setnode_node["inputs"]:
+                if isinstance(input_item, dict) and input_item.get("link"):
+                    link_id = input_item["link"]
+                    for link in workflow_data.get("links", []):
+                        if len(link) >= 6 and link[0] == link_id:
+                            source_node_id = str(link[1]).lstrip('#')
+                            source_output_index = link[2]
+                            source_node = all_nodes_map.get(source_node_id)
+                            if source_node:
+                                if source_node.get("type") == "SetNode":
+                                    result = resolve_setnode_source(source_node_id, visited)
+                                    if result:
+                                        return result
+                                elif source_node.get("type") == "GetNode":
+                                    widgets = source_node.get("widgets_values", [])
+                                    if widgets and isinstance(widgets, list):
+                                        getnode_name = widgets[0]
+                                        for sn_id, sn_node in all_nodes_map.items():
+                                            if sn_node.get("type") == "SetNode":
+                                                sn_widgets = sn_node.get("widgets_values", [])
+                                                if sn_widgets and sn_widgets[0] == getnode_name:
+                                                    result = resolve_setnode_source(sn_id, visited)
+                                                    if result:
+                                                        return result
+                                else:
+                                    return [source_node_id, source_output_index]
+        return None
+    
+    # 建立 SetNode 名称到源节点的映射
+    for node_id, node in all_nodes_map.items():
+        if node.get("type") == "SetNode":
+            widgets = node.get("widgets_values", [])
+            if widgets and isinstance(widgets, list):
+                setnode_name = widgets[0]
+                resolved_source = resolve_setnode_source(node_id)
+                if resolved_source:
+                    setnode_source_map[setnode_name] = resolved_source
+    
+    # 建立 links 映射（支持 SetNode/GetNode 解析）
     links_map = {}
     if "links" in workflow_data:
         for link in workflow_data["links"]:
@@ -339,8 +392,33 @@ def convert_workflow_nodes_to_prompt(workflow_data):
                 source_output_index = link[2]
                 target_node_id = str(link[3]).lstrip('#')
                 
+                source_node = all_nodes_map.get(source_node_id)
+                
+                # 处理 SetNode 输出链接：解析到 SetNode 的源节点
+                if source_node and source_node.get("type") == "SetNode":
+                    resolved_source = resolve_setnode_source(source_node_id)
+                    if resolved_source:
+                        source_node_id, source_output_index = resolved_source
+                        logger.debug(f"Link {link_id}: SetNode 解析到源节点 {source_node_id}[{source_output_index}]")
+                
+                # 处理 GetNode 输入链接：解析到对应的 SetNode 源节点
+                if source_node and source_node.get("type") == "GetNode":
+                    widgets = source_node.get("widgets_values", [])
+                    if widgets and isinstance(widgets, list):
+                        getnode_name = widgets[0]
+                        if getnode_name in setnode_source_map:
+                            resolved_source = setnode_source_map[getnode_name]
+                            if resolved_source:
+                                source_node_id, source_output_index = resolved_source
+                                logger.debug(f"Link {link_id}: GetNode {getnode_name} 解析到源节点 {source_node_id}[{source_output_index}]")
+                
+                # 只添加有效的链接（源节点和目标节点都在有效节点列表中）
                 if source_node_id in valid_node_ids and target_node_id in valid_node_ids:
                     links_map[link_id] = [source_node_id, source_output_index]
+                elif source_node_id not in valid_node_ids:
+                    logger.debug(f"Link {link_id}: 源节点 {source_node_id} 不在有效节点列表中，跳过")
+                elif target_node_id not in valid_node_ids:
+                    logger.debug(f"Link {link_id}: 目标节点 {target_node_id} 不在有效节点列表中，跳过")
     
     # 转换节点
     for node in workflow_data["nodes"]:
