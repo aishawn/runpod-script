@@ -2059,35 +2059,46 @@ def handler(job):
                                     current_output = outputs[current_output_idx]
                                     current_output_type = current_output.get("type", "")
                                 
-                                # 如果源节点是 WanVideoAddOneToAllExtendEmbeds，总是查找 IMAGE 输出
-                                if "WanVideoAddOneToAllExtendEmbeds" in source_class or current_output_type == "WANVIDIMAGE_EMBEDS":
-                                    # 查找 IMAGE 类型的输出
+                                # 检查节点类型是否为 UUID（子图节点）
+                                node_type = orig_node.get("type", "")
+                                is_uuid_subgraph = isinstance(node_type, str) and len(node_type) > 10 and "-" in node_type and node_type.count("-") >= 4
+                                
+                                # 如果源节点是 WanVideoAddOneToAllExtendEmbeds（包括 UUID 子图节点），总是查找 IMAGE 输出
+                                # 对于 UUID 子图节点，即使输出定义显示为 IMAGE，实际执行时可能输出 WANVIDIMAGE_EMBEDS
+                                if "WanVideoAddOneToAllExtendEmbeds" in source_class or is_uuid_subgraph or current_output_type == "WANVIDIMAGE_EMBEDS":
+                                    # 查找 IMAGE 类型的输出，优先查找 extended_images
                                     image_output_idx = None
                                     for img_idx, img_output in enumerate(outputs):
                                         output_type = img_output.get("type", "")
                                         output_name = img_output.get("name", "").lower()
                                         
-                                        # 优先查找 extended_images 或包含 "image" 的输出
-                                        if output_type == "IMAGE":
-                                            if ("extended_images" in output_name or "extend" in output_name or 
-                                                "image" in output_name):
+                                        # 优先查找 extended_images 输出
+                                        if output_type == "IMAGE" and ("extended_images" in output_name or "extend" in output_name):
+                                            image_output_idx = img_idx
+                                            break
+                                    
+                                    # 如果没找到 extended_images，查找任何 IMAGE 输出
+                                    if image_output_idx is None:
+                                        for img_idx, img_output in enumerate(outputs):
+                                            output_type = img_output.get("type", "")
+                                            if output_type == "IMAGE":
                                                 image_output_idx = img_idx
                                                 break
-                                            # 如果没有找到名称匹配的，使用第一个 IMAGE 输出
-                                            if image_output_idx is None:
-                                                image_output_idx = img_idx
                                     
                                     if image_output_idx is not None:
-                                        # 修复：使用 IMAGE 输出索引
+                                        # 修复：使用 IMAGE 输出索引（即使当前索引已经是 IMAGE，也要确保使用正确的索引）
                                         if len(images_input) < 2:
                                             images_input.append(image_output_idx)
                                         else:
                                             images_input[1] = image_output_idx
-                                        type_mismatch_fixes.append(
-                                            f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入从节点 {source_node_id} "
-                                            f"的输出索引 {current_output_idx} ({current_output_type or 'unknown'}) -> {image_output_idx} (IMAGE)"
-                                        )
-                                        logger.info(type_mismatch_fixes[-1])
+                                        
+                                        # 只有在实际修改了索引时才记录
+                                        if current_output_idx != image_output_idx or current_output_type == "WANVIDIMAGE_EMBEDS":
+                                            type_mismatch_fixes.append(
+                                                f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入从节点 {source_node_id} "
+                                                f"的输出索引 {current_output_idx} ({current_output_type or 'unknown'}) -> {image_output_idx} (IMAGE)"
+                                            )
+                                            logger.info(type_mismatch_fixes[-1])
                                     else:
                                         # 如果找不到 IMAGE 输出，记录警告
                                         type_mismatch_warnings.append(
@@ -2370,6 +2381,26 @@ def handler(job):
                                     logger.info(f"节点 {node_id}: 设置默认 model_name={default_vae}")
                 except Exception as e:
                     logger.warning(f"节点 {node_id}: 无法获取 VAE 模型列表: {e}")
+        
+        # OnnxDetectionModelLoader: 从 widgets_values 填充必需输入
+        if "OnnxDetectionModelLoader" in class_type:
+            # 从原始工作流中获取 widgets_values
+            if "nodes" in workflow_data:
+                for orig_node in workflow_data.get("nodes", []):
+                    if str(orig_node.get("id")) == node_id:
+                        widgets_values = orig_node.get("widgets_values", [])
+                        if isinstance(widgets_values, list) and len(widgets_values) >= 3:
+                            # widgets_values 格式: [vitpose_model, yolo_model, onnx_device]
+                            if "vitpose_model" not in node["inputs"]:
+                                node["inputs"]["vitpose_model"] = widgets_values[0] if len(widgets_values) > 0 else "vitpose-l-wholebody.onnx"
+                                logger.info(f"节点 {node_id}: 设置 vitpose_model={node['inputs']['vitpose_model']}")
+                            if "yolo_model" not in node["inputs"]:
+                                node["inputs"]["yolo_model"] = widgets_values[1] if len(widgets_values) > 1 else "yolov10m.onnx"
+                                logger.info(f"节点 {node_id}: 设置 yolo_model={node['inputs']['yolo_model']}")
+                            if "onnx_device" not in node["inputs"]:
+                                node["inputs"]["onnx_device"] = widgets_values[2] if len(widgets_values) > 2 else "CUDAExecutionProvider"
+                                logger.info(f"节点 {node_id}: 设置 onnx_device={node['inputs']['onnx_device']}")
+                        break
         
         # WanVideoLoraSelect: 修复 LoRA 路径格式
         if "WanVideoLoraSelect" in class_type:
