@@ -173,18 +173,39 @@ def get_videos(ws, prompt, is_mega_model=False):
     if 'outputs' not in history:
         raise Exception("执行历史中未找到输出")
     
+    # 详细日志：记录所有输出节点
+    all_output_nodes = list(history['outputs'].keys())
+    logger.info(f"📊 执行历史中的输出节点 ({len(all_output_nodes)} 个): {all_output_nodes}")
+    
     output_videos = {}
     for node_id in history['outputs']:
         node_output = history['outputs'][node_id]
         videos_output = []
+        
+        # 检查节点类型和输出字段
+        output_keys = list(node_output.keys())
+        node_class = prompt.get(node_id, {}).get("class_type", "unknown") if node_id in prompt else "unknown"
+        
+        # 对于 VHS_VideoCombine 节点，记录详细信息
+        if "VHS_VideoCombine" in node_class:
+            logger.info(f"🔍 处理 VHS_VideoCombine 节点 {node_id}: 输出字段 = {output_keys}")
+            save_output = prompt.get(node_id, {}).get("inputs", {}).get("save_output", False) if node_id in prompt else False
+            logger.info(f"   节点 {node_id}: save_output = {save_output}")
+        
         video_list = node_output.get('gifs') or node_output.get('videos')
         
         if video_list:
+            logger.info(f"✅ 节点 {node_id} ({node_class}): 找到视频输出，数量: {len(video_list)}")
             for video in video_list:
                 if 'fullpath' in video:
-                    with open(video['fullpath'], 'rb') as f:
-                        video_data = base64.b64encode(f.read()).decode('utf-8')
-                    videos_output.append(video_data)
+                    video_path = video['fullpath']
+                    if os.path.exists(video_path):
+                        with open(video_path, 'rb') as f:
+                            video_data = base64.b64encode(f.read()).decode('utf-8')
+                        videos_output.append(video_data)
+                        logger.info(f"   节点 {node_id}: 成功读取视频文件 {video_path}")
+                    else:
+                        logger.warning(f"   节点 {node_id}: 视频文件不存在: {video_path}")
                 elif 'filename' in video:
                     try:
                         video_bytes = get_image(video['filename'], 
@@ -192,9 +213,23 @@ def get_videos(ws, prompt, is_mega_model=False):
                                               video.get('type', 'output'))
                         video_data = base64.b64encode(video_bytes).decode('utf-8')
                         videos_output.append(video_data)
+                        logger.info(f"   节点 {node_id}: 成功读取视频文件 {video['filename']} (type: {video.get('type', 'output')})")
                     except Exception as e:
-                        logger.warning(f"无法读取视频文件 {video['filename']}: {e}")
+                        logger.warning(f"   节点 {node_id}: 无法读取视频文件 {video['filename']}: {e}")
+        else:
+            # 对于 VHS_VideoCombine 节点，如果没有视频输出，记录详细信息
+            if "VHS_VideoCombine" in node_class:
+                logger.warning(f"⚠️ 节点 {node_id} (VHS_VideoCombine): 没有视频输出")
+                logger.warning(f"   输出字段: {output_keys}")
+                logger.warning(f"   节点配置: save_output = {prompt.get(node_id, {}).get('inputs', {}).get('save_output', False) if node_id in prompt else 'N/A'}")
+        
         output_videos[node_id] = videos_output
+
+    # 记录所有有视频输出的节点
+    video_output_nodes = [node_id for node_id in output_videos if output_videos[node_id]]
+    logger.info(f"📹 有视频输出的节点 ({len(video_output_nodes)} 个): {video_output_nodes}")
+    for node_id in video_output_nodes:
+        logger.info(f"   节点 {node_id}: {len(output_videos[node_id])} 个视频")
 
     # 返回输出视频和执行顺序
     return output_videos, execution_order
@@ -1309,8 +1344,10 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
             node["inputs"]["num_frames"] = length
     
     # 确保 VHS_VideoCombine 节点正确配置（保存输出）
+    vhs_nodes_found = []
     for node_id, node in prompt.items():
         if "VHS_VideoCombine" in node.get("class_type", ""):
+            vhs_nodes_found.append(node_id)
             if "inputs" not in node:
                 node["inputs"] = {}
             # 确保 save_output 设置为 True
@@ -1319,6 +1356,10 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
                 if isinstance(widgets, dict):
                     widgets["save_output"] = True
             node["inputs"]["save_output"] = True
+            
+            # 记录节点配置信息
+            images_input = node["inputs"].get("images", "N/A")
+            logger.debug(f"VHS_VideoCombine 节点 {node_id}: images输入 = {images_input}, save_output = {node['inputs'].get('save_output', False)}")
             # 从 widgets_values 补充缺失的必需输入
             if "widgets_values" in node and isinstance(node["widgets_values"], dict):
                 widgets = node["widgets_values"]
@@ -1337,6 +1378,25 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
             if "format" not in node["inputs"]:
                 node["inputs"]["format"] = "video/h264-mp4"
             logger.info(f"已配置 VHS_VideoCombine 节点 {node_id} 的 save_output=True")
+    
+    if vhs_nodes_found:
+        logger.info(f"发现 {len(vhs_nodes_found)} 个 VHS_VideoCombine 节点: {vhs_nodes_found}")
+        # 检查所有 VHS_VideoCombine 节点的输入连接
+        for node_id in vhs_nodes_found:
+            if node_id in prompt:
+                node = prompt[node_id]
+                images_input = node.get("inputs", {}).get("images", None)
+                if images_input:
+                    if isinstance(images_input, list) and len(images_input) > 0:
+                        source_node_id = str(images_input[0])
+                        if source_node_id in prompt:
+                            logger.debug(f"节点 {node_id}: images输入连接到节点 {source_node_id} ✓")
+                        else:
+                            logger.warning(f"节点 {node_id}: images输入连接到不存在的节点 {source_node_id} ✗")
+                    else:
+                        logger.warning(f"节点 {node_id}: images输入格式无效: {images_input}")
+                else:
+                    logger.warning(f"节点 {node_id}: 缺少 images 输入 ✗")
 
 
 def configure_standard_workflow(prompt, image_path, end_image_path_local, positive_prompt,
