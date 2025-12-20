@@ -2385,10 +2385,34 @@ def handler(job):
                 except Exception as e:
                     logger.warning(f"节点 {node_id}: 无法获取 T5 模型列表: {e}")
         
-        # WanVideoVAELoader: 确保 model_name 存在
+        # WanVideoVAELoader: 确保 model_name 和 precision 存在
         if "WanVideoVAELoader" in class_type:
+            # 从原始工作流中获取 widgets_values
+            if "nodes" in workflow_data:
+                for orig_node in workflow_data.get("nodes", []):
+                    if str(orig_node.get("id")) == node_id:
+                        widgets_values = orig_node.get("widgets_values", [])
+                        logger.debug(f"节点 {node_id}: widgets_values = {widgets_values}")
+                        if isinstance(widgets_values, list):
+                            # widgets_values 格式: [model_name, precision, ...]
+                            if len(widgets_values) >= 1 and "model_name" not in node["inputs"]:
+                                model_name = widgets_values[0]
+                                if isinstance(model_name, str):
+                                    # 规范化路径
+                                    model_name = model_name.replace("\\", "/")
+                                    if model_name.startswith("wanvideo\\") or model_name.startswith("wanvideo/"):
+                                        model_name = model_name.replace("wanvideo\\", "").replace("wanvideo/", "")
+                                    node["inputs"]["model_name"] = model_name
+                                    logger.info(f"节点 {node_id}: 设置 model_name={model_name}")
+                            if len(widgets_values) >= 2 and "precision" not in node["inputs"]:
+                                precision = widgets_values[1]
+                                if isinstance(precision, str):
+                                    node["inputs"]["precision"] = precision
+                                    logger.info(f"节点 {node_id}: 设置 precision={precision}")
+                        break
+            
+            # 如果仍然缺少，尝试从 API 获取默认值
             if "model_name" not in node["inputs"]:
-                # 尝试从 API 获取默认值
                 try:
                     url = f"http://{server_address}:8188/object_info"
                     with urllib.request.urlopen(url, timeout=5) as response:
@@ -2407,6 +2431,11 @@ def handler(job):
                                     logger.info(f"节点 {node_id}: 设置默认 model_name={default_vae}")
                 except Exception as e:
                     logger.warning(f"节点 {node_id}: 无法获取 VAE 模型列表: {e}")
+            
+            # 如果仍然缺少 precision，使用默认值
+            if "precision" not in node["inputs"]:
+                node["inputs"]["precision"] = "bf16"
+                logger.info(f"节点 {node_id}: 设置默认 precision=bf16")
         
         # OnnxDetectionModelLoader: 从 widgets_values 填充必需输入
         if "OnnxDetectionModelLoader" in class_type:
