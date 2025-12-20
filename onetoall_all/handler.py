@@ -2353,8 +2353,50 @@ def handler(job):
         if "inputs" not in node:
             node["inputs"] = {}
         
-        # WanVideoModelLoader: 确保 quantization 和 base_precision 存在
+        # WanVideoModelLoader: 从 widgets_values 填充必需输入
         if "WanVideoModelLoader" in class_type:
+            # 从原始工作流中获取 widgets_values
+            if "nodes" in workflow_data:
+                for orig_node in workflow_data.get("nodes", []):
+                    if str(orig_node.get("id")) == node_id:
+                        widgets_values = orig_node.get("widgets_values", [])
+                        logger.debug(f"节点 {node_id}: widgets_values = {widgets_values}")
+                        if isinstance(widgets_values, list):
+                            # widgets_values 格式: [model, base_precision, quantization, load_device, attention_slicing, ...]
+                            if len(widgets_values) >= 1 and "model" not in node["inputs"]:
+                                model = widgets_values[0]
+                                if isinstance(model, str):
+                                    # 规范化路径
+                                    model = model.replace("\\", "/")
+                                    if model.startswith("/ComfyUI/models/diffusion_models/"):
+                                        model = model.replace("/ComfyUI/models/diffusion_models/", "")
+                                    elif model.startswith("/ComfyUI/models/checkpoints/"):
+                                        model = model.replace("/ComfyUI/models/checkpoints/", "")
+                                    node["inputs"]["model"] = model
+                                    logger.info(f"节点 {node_id}: 设置 model={model}")
+                            if len(widgets_values) >= 2 and "base_precision" not in node["inputs"]:
+                                base_precision = widgets_values[1]
+                                if isinstance(base_precision, str):
+                                    node["inputs"]["base_precision"] = base_precision
+                                    logger.info(f"节点 {node_id}: 设置 base_precision={base_precision}")
+                            if len(widgets_values) >= 3 and "quantization" not in node["inputs"]:
+                                quantization = widgets_values[2]
+                                if isinstance(quantization, str):
+                                    node["inputs"]["quantization"] = quantization
+                                    logger.info(f"节点 {node_id}: 设置 quantization={quantization}")
+                            if len(widgets_values) >= 4 and "load_device" not in node["inputs"]:
+                                load_device = widgets_values[3]
+                                if isinstance(load_device, str):
+                                    node["inputs"]["load_device"] = load_device
+                                    logger.info(f"节点 {node_id}: 设置 load_device={load_device}")
+                            if len(widgets_values) >= 5 and "attention_slicing" not in node["inputs"]:
+                                attention_slicing = widgets_values[4]
+                                if isinstance(attention_slicing, str):
+                                    node["inputs"]["attention_slicing"] = attention_slicing
+                                    logger.info(f"节点 {node_id}: 设置 attention_slicing={attention_slicing}")
+                        break
+            
+            # 如果仍然缺少，使用默认值
             if "quantization" not in node["inputs"]:
                 node["inputs"]["quantization"] = "disabled"
                 logger.info(f"节点 {node_id}: 设置默认 quantization=disabled")
@@ -2362,11 +2404,42 @@ def handler(job):
                 node["inputs"]["base_precision"] = "float16"
                 logger.info(f"节点 {node_id}: 设置默认 base_precision=float16")
         
-        # LoadWanVideoT5TextEncoder: 确保 precision 和 model_name 存在
+        # LoadWanVideoT5TextEncoder: 从 widgets_values 填充必需输入
         if "LoadWanVideoT5TextEncoder" in class_type:
+            # 从原始工作流中获取 widgets_values
+            if "nodes" in workflow_data:
+                for orig_node in workflow_data.get("nodes", []):
+                    if str(orig_node.get("id")) == node_id:
+                        widgets_values = orig_node.get("widgets_values", [])
+                        logger.debug(f"节点 {node_id}: widgets_values = {widgets_values}")
+                        if isinstance(widgets_values, list):
+                            # widgets_values 格式: [model_name, precision, offload_device, offload_mode]
+                            if len(widgets_values) >= 1 and "model_name" not in node["inputs"]:
+                                model_name = widgets_values[0]
+                                if isinstance(model_name, str):
+                                    node["inputs"]["model_name"] = model_name
+                                    logger.info(f"节点 {node_id}: 设置 model_name={model_name}")
+                            if len(widgets_values) >= 2 and "precision" not in node["inputs"]:
+                                precision = widgets_values[1]
+                                if isinstance(precision, str):
+                                    node["inputs"]["precision"] = precision
+                                    logger.info(f"节点 {node_id}: 设置 precision={precision}")
+                            if len(widgets_values) >= 3 and "offload_device" not in node["inputs"]:
+                                offload_device = widgets_values[2]
+                                if isinstance(offload_device, str):
+                                    node["inputs"]["offload_device"] = offload_device
+                                    logger.info(f"节点 {node_id}: 设置 offload_device={offload_device}")
+                            if len(widgets_values) >= 4 and "offload_mode" not in node["inputs"]:
+                                offload_mode = widgets_values[3]
+                                if isinstance(offload_mode, str):
+                                    node["inputs"]["offload_mode"] = offload_mode
+                                    logger.info(f"节点 {node_id}: 设置 offload_mode={offload_mode}")
+                        break
+            
+            # 如果仍然缺少，使用默认值或从 API 获取
             if "precision" not in node["inputs"]:
-                node["inputs"]["precision"] = "float16"
-                logger.info(f"节点 {node_id}: 设置默认 precision=float16")
+                node["inputs"]["precision"] = "bf16"
+                logger.info(f"节点 {node_id}: 设置默认 precision=bf16")
             if "model_name" not in node["inputs"]:
                 # 尝试从 API 获取默认值
                 try:
@@ -2384,6 +2457,12 @@ def handler(job):
                                     logger.info(f"节点 {node_id}: 设置默认 model_name={t5_models[0]}")
                 except Exception as e:
                     logger.warning(f"节点 {node_id}: 无法获取 T5 模型列表: {e}")
+            if "offload_device" not in node["inputs"]:
+                node["inputs"]["offload_device"] = "offload_device"
+                logger.info(f"节点 {node_id}: 设置默认 offload_device=offload_device")
+            if "offload_mode" not in node["inputs"]:
+                node["inputs"]["offload_mode"] = "disabled"
+                logger.info(f"节点 {node_id}: 设置默认 offload_mode=disabled")
         
         # WanVideoVAELoader: 确保 model_name 和 precision 存在
         if "WanVideoVAELoader" in class_type:
