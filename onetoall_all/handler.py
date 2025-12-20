@@ -1660,24 +1660,64 @@ def handler(job):
                         source_class = source_node.get("class_type", "")
                         source_type = source_node.get("type", "")
                         
-                        # 处理子图节点（UUID 类型）或 WanVideoAddOneToAllExtendEmbeds
-                        is_extend_node = ("WanVideoAddOneToAllExtendEmbeds" in source_class or 
-                                         "WanVideoAddOneToAllExtendEmbeds" in str(source_type) or
-                                         "extend" in source_node.get("title", "").lower())
+                        # 检查源节点的输出定义（从原始工作流数据中获取）
+                        # 只有在 UI 格式的工作流中才需要检查（有 nodes 数组）
+                        original_node = None
+                        if "nodes" in workflow_data:
+                            for orig_node in workflow_data.get("nodes", []):
+                                if str(orig_node.get("id")) == source_node_id:
+                                    original_node = orig_node
+                                    break
                         
-                        if is_extend_node:
-                            # 检查源节点的输出定义（从原始工作流数据中获取）
-                            # 只有在 UI 格式的工作流中才需要检查（有 nodes 数组）
-                            original_node = None
-                            if "nodes" in workflow_data:
-                                for orig_node in workflow_data.get("nodes", []):
-                                    if str(orig_node.get("id")) == source_node_id:
-                                        original_node = orig_node
-                                        break
-                            
-                            if original_node:
-                                outputs = original_node.get("outputs", [])
-                                if len(outputs) > 0:
+                        if original_node:
+                            outputs = original_node.get("outputs", [])
+                            if len(outputs) > 0:
+                                current_output_idx = images_input[1] if len(images_input) > 1 else 0
+                                current_output_type = None
+                                
+                                # 检查当前连接的输出类型
+                                if current_output_idx < len(outputs):
+                                    current_output = outputs[current_output_idx]
+                                    current_output_type = current_output.get("type", "")
+                                
+                                # 如果当前输出是 WANVIDIMAGE_EMBEDS，需要找到 IMAGE 输出
+                                if current_output_type == "WANVIDIMAGE_EMBEDS":
+                                    # 查找 IMAGE 类型的输出
+                                    image_output_idx = None
+                                    for idx, output in enumerate(outputs):
+                                        output_type = output.get("type", "")
+                                        output_name = output.get("name", "").lower()
+                                        
+                                        # 优先查找名称包含 "image" 或 "extend" 的 IMAGE 输出
+                                        if output_type == "IMAGE":
+                                            if ("extended_images" in output_name or "extend" in output_name or 
+                                                "image" in output_name):
+                                                image_output_idx = idx
+                                                break
+                                            # 如果没有找到名称匹配的，使用第一个 IMAGE 输出
+                                            if image_output_idx is None:
+                                                image_output_idx = idx
+                                    
+                                    # 如果找到了 IMAGE 输出，使用它
+                                    if image_output_idx is not None:
+                                        if len(images_input) < 2:
+                                            images_input.append(image_output_idx)
+                                        else:
+                                            images_input[1] = image_output_idx
+                                        logger.info(f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入从节点 {source_node_id} "
+                                                   f"的输出索引 {current_output_idx} (WANVIDIMAGE_EMBEDS) -> {image_output_idx} (IMAGE)")
+                                    else:
+                                        logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} "
+                                                     f"({source_class}) 只输出 WANVIDIMAGE_EMBEDS，没有 IMAGE 输出")
+                                # 如果当前输出已经是 IMAGE，不需要修改
+                                elif current_output_type == "IMAGE":
+                                    # 确保输出索引正确设置
+                                    if len(images_input) < 2:
+                                        images_input.append(current_output_idx)
+                                # 处理 WanVideoAddOneToAllExtendEmbeds 节点
+                                elif ("WanVideoAddOneToAllExtendEmbeds" in source_class or 
+                                      "WanVideoAddOneToAllExtendEmbeds" in str(source_type) or
+                                      "extend" in source_node.get("title", "").lower()):
                                     # 查找 extended_images 输出（IMAGE 类型）
                                     extended_images_idx = None
                                     for idx, output in enumerate(outputs):
@@ -1693,17 +1733,18 @@ def handler(job):
                                     # 如果找到了 IMAGE 输出，确保使用正确的索引
                                     if extended_images_idx is not None:
                                         if len(images_input) < 2 or images_input[1] != extended_images_idx:
-                                            logger.info(f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入来自节点 {source_node_id} 的输出索引 {images_input[1] if len(images_input) > 1 else 'None'} -> {extended_images_idx}")
+                                            logger.info(f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入来自节点 {source_node_id} "
+                                                      f"的输出索引 {images_input[1] if len(images_input) > 1 else 'None'} -> {extended_images_idx}")
                                             if len(images_input) < 2:
                                                 images_input.append(extended_images_idx)
                                             else:
                                                 images_input[1] = extended_images_idx
                                     else:
                                         logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 没有找到 IMAGE 类型的输出")
-                                else:
-                                    logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 没有输出定义")
                             else:
-                                logger.warning(f"节点 {node_id} (VHS_VideoCombine): 无法在原始工作流中找到节点 {source_node_id}")
+                                logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 没有输出定义")
+                        else:
+                            logger.warning(f"节点 {node_id} (VHS_VideoCombine): 无法在原始工作流中找到节点 {source_node_id}")
         
         # WanVideoDecode/WanVideoEncode: 验证并修正 tile 参数（在修正值类型错误部分之后再次验证）
         if "WanVideoDecode" in class_type or "WanVideoEncode" in class_type:
