@@ -1067,13 +1067,20 @@ def fill_missing_inputs_from_widgets(node_id, node):
             node["inputs"]["lora"] = lora_path
         if len(widgets) >= 2 and "strength" not in node["inputs"]:
             node["inputs"]["strength"] = widgets[1]
-        if len(widgets) >= 3 and "merge_loras" not in node["inputs"]:
-            merge_loras = widgets[2]
-            # 如果 WanVideoSetLoRAs 节点没有使用 low_mem_load，必须禁用 merge_loras
-            # 检查是否有 WanVideoSetLoRAs 节点连接到这个 LoRA
-            node["inputs"]["merge_loras"] = merge_loras
+        
+        # 先读取 low_mem_load，因为需要用它来判断是否允许 merge_loras
         if len(widgets) >= 4 and "low_mem_load" not in node["inputs"]:
             node["inputs"]["low_mem_load"] = widgets[3]
+        
+        # 读取 merge_loras，但如果 low_mem_load 为 false，必须禁用 merge_loras
+        if len(widgets) >= 3 and "merge_loras" not in node["inputs"]:
+            merge_loras = widgets[2]
+            low_mem_load = node["inputs"].get("low_mem_load", False)
+            # 如果 low_mem_load 为 false，必须禁用 merge_loras
+            if not low_mem_load:
+                merge_loras = False
+                logger.info(f"节点 {node_id} (WanVideoLoraSelect): low_mem_load 为 false，禁用 merge_loras")
+            node["inputs"]["merge_loras"] = merge_loras
         
         # 验证并修正 lora 路径
         if "lora" in node["inputs"] and isinstance(node["inputs"]["lora"], str) and node["inputs"]["lora"]:
@@ -1088,14 +1095,15 @@ def fill_missing_inputs_from_widgets(node_id, node):
                 lora_path = "WanVideo/" + lora_path
             node["inputs"]["lora"] = lora_path
         
-        # 重要：如果 WanVideoSetLoRAs 节点没有使用 low_mem_load，必须禁用 merge_loras
-        # 检查是否有连接到 WanVideoSetLoRAs 的节点
-        # 如果 merge_loras 未设置或为 True，且没有 low_mem_load，则禁用 merge_loras
-        if "merge_loras" not in node["inputs"] or node["inputs"].get("merge_loras", False):
-            # 检查是否有 low_mem_load
-            if not node["inputs"].get("low_mem_load", False):
+        # 最终验证：如果 low_mem_load 为 false，确保 merge_loras 为 false
+        low_mem_load = node["inputs"].get("low_mem_load", False)
+        if not low_mem_load:
+            if node["inputs"].get("merge_loras", False):
                 node["inputs"]["merge_loras"] = False
-                logger.info(f"节点 {node_id} (WanVideoLoraSelect): 禁用 merge_loras（因为未使用 low_mem_load）")
+                logger.warning(f"节点 {node_id} (WanVideoLoraSelect): 强制禁用 merge_loras（因为 low_mem_load 为 false）")
+            elif "merge_loras" not in node["inputs"]:
+                node["inputs"]["merge_loras"] = False
+                logger.info(f"节点 {node_id} (WanVideoLoraSelect): 设置默认 merge_loras=False（因为 low_mem_load 为 false）")
     elif "WanVideoBlockSwap" in class_type:
         # widgets: [blocks_to_swap, offload_txt_emb, offload_img_emb]
         if len(widgets) >= 1 and "blocks_to_swap" not in node["inputs"]:
@@ -2654,26 +2662,40 @@ def handler(job):
                         logger.debug(f"节点 {node_id}: widgets_values = {widgets_values}")
                         if isinstance(widgets_values, list):
                             # widgets_values 格式: [lora, strength, merge_loras, low_mem_load]
-                            if len(widgets_values) >= 3 and "merge_loras" not in node["inputs"]:
-                                merge_loras = widgets_values[2]
-                                node["inputs"]["merge_loras"] = merge_loras
-                                logger.info(f"节点 {node_id}: 设置 merge_loras={merge_loras}")
+                            # 先读取 low_mem_load，因为需要用它来判断是否允许 merge_loras
                             if len(widgets_values) >= 4 and "low_mem_load" not in node["inputs"]:
                                 low_mem_load = widgets_values[3]
                                 node["inputs"]["low_mem_load"] = low_mem_load
                                 logger.info(f"节点 {node_id}: 设置 low_mem_load={low_mem_load}")
+                            
+                            # 读取 merge_loras，但如果 low_mem_load 为 false，必须禁用 merge_loras
+                            if len(widgets_values) >= 3:
+                                merge_loras = widgets_values[2]
+                                low_mem_load = node["inputs"].get("low_mem_load", False)
+                                # 如果 low_mem_load 为 false，必须禁用 merge_loras
+                                if not low_mem_load:
+                                    merge_loras = False
+                                    logger.info(f"节点 {node_id}: low_mem_load 为 false，将 merge_loras 设置为 False")
+                                # 无论是否已存在，都强制设置（确保值正确）
+                                node["inputs"]["merge_loras"] = merge_loras
+                                logger.info(f"节点 {node_id}: 设置 merge_loras={merge_loras}")
                         break
             
-            # 重要：如果 low_mem_load 为 false，必须禁用 merge_loras
+            # 最终强制验证：如果 low_mem_load 为 false，必须禁用 merge_loras
             # 这是为了避免 "Set LoRA node does not use low_mem_load and can't merge LoRAs" 错误
             low_mem_load = node["inputs"].get("low_mem_load", False)
             if not low_mem_load:
+                # 无论 merge_loras 当前值是什么，都强制设置为 False
                 if node["inputs"].get("merge_loras", False):
                     node["inputs"]["merge_loras"] = False
-                    logger.warning(f"节点 {node_id} (WanVideoLoraSelect): low_mem_load 为 false，禁用 merge_loras 以避免错误")
+                    logger.warning(f"节点 {node_id} (WanVideoLoraSelect): 强制禁用 merge_loras（因为 low_mem_load 为 false）")
                 elif "merge_loras" not in node["inputs"]:
                     node["inputs"]["merge_loras"] = False
                     logger.info(f"节点 {node_id} (WanVideoLoraSelect): 设置默认 merge_loras=False（因为 low_mem_load 为 false）")
+                else:
+                    # 确保值为 False
+                    node["inputs"]["merge_loras"] = False
+                    logger.info(f"节点 {node_id} (WanVideoLoraSelect): 确认 merge_loras=False（因为 low_mem_load 为 false）")
             
             # 规范化 LoRA 路径
             if "lora" in node["inputs"]:
