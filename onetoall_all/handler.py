@@ -1950,12 +1950,16 @@ def handler(job):
     missing_node_errors = []
     missing_node_fixes = []
     
+    # 收集需要删除的输入项，避免在迭代时修改字典
+    inputs_to_remove = []
+    
     for node_id, node in prompt.items():
         class_type = node.get("class_type", "")
         if "inputs" not in node:
             continue
         
-        for input_name, input_value in node["inputs"].items():
+        # 使用 list() 创建副本以避免迭代时修改字典
+        for input_name, input_value in list(node["inputs"].items()):
             if isinstance(input_value, list) and len(input_value) >= 1:
                 source_node_id = str(input_value[0])
                 if source_node_id not in prompt:
@@ -2041,9 +2045,14 @@ def handler(job):
                                 else:
                                     logger.warning(f"节点 {node_id}: 无法修复输入 {input_name}，引用的节点 {source_node_id} 不存在且找不到替代节点")
                             else:
-                                # 对于其他输入，移除连接以避免 KeyError
+                                # 对于其他输入，收集需要删除的项
                                 logger.warning(f"节点 {node_id}: 移除指向不存在节点 {source_node_id} 的连接 {input_name}")
-                                del node["inputs"][input_name]
+                                inputs_to_remove.append((node_id, input_name))
+    
+    # 在迭代完成后删除收集的输入项
+    for node_id, input_name in inputs_to_remove:
+        if node_id in prompt and "inputs" in prompt[node_id] and input_name in prompt[node_id]["inputs"]:
+            del prompt[node_id]["inputs"][input_name]
     
     if missing_node_fixes:
         logger.info(f"修复了 {len(missing_node_fixes)} 个缺失节点连接")
@@ -2259,5 +2268,5 @@ def handler(job):
 
 
 if __name__ == "__main__":
-    print("Starting handler v1...")
+    print("Starting handler v2...")
     runpod.serverless.start({"handler": handler})
