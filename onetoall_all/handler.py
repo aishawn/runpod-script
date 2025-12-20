@@ -177,6 +177,34 @@ def get_videos(ws, prompt, is_mega_model=False):
     all_output_nodes = list(history['outputs'].keys())
     logger.info(f"📊 执行历史中的输出节点 ({len(all_output_nodes)} 个): {all_output_nodes}")
     
+    # 检查关键节点（采样器、模型、VAE等）是否执行
+    key_nodes_to_check_execution = ["22", "27", "80", "28", "35", "38", "98", "141", "154", "180", "263", "297", "311"]
+    logger.info(f"🔍 检查关键节点的执行状态:")
+    for node_id in key_nodes_to_check_execution:
+        if node_id in prompt:
+            node_class = prompt[node_id].get("class_type", "unknown")
+            executed = node_id in all_output_nodes
+            status = "✓ 已执行" if executed else "✗ 未执行"
+            logger.info(f"   节点 {node_id} ({node_class}): {status}")
+            
+            # 如果未执行，检查输入连接
+            if not executed:
+                node = prompt[node_id]
+                inputs = node.get("inputs", {})
+                logger.warning(f"      节点 {node_id} 的输入: {list(inputs.keys())}")
+                # 检查关键输入
+                for input_key in ["model", "samples", "image_embeds", "text_embeds", "vae", "image", "images"]:
+                    if input_key in inputs:
+                        input_value = inputs[input_key]
+                        if isinstance(input_value, list) and len(input_value) > 0:
+                            upstream_node_id = str(input_value[0])
+                            upstream_in_prompt = upstream_node_id in prompt
+                            upstream_executed = upstream_node_id in all_output_nodes
+                            upstream_class = prompt.get(upstream_node_id, {}).get("class_type", "unknown") if upstream_in_prompt else "unknown"
+                            logger.warning(f"        输入 {input_key} -> 节点 {upstream_node_id} ({upstream_class}, {'在prompt中' if upstream_in_prompt else '不在prompt中'}, {'已执行' if upstream_executed else '未执行'})")
+        else:
+            logger.warning(f"   节点 {node_id}: 不在prompt中")
+    
     output_videos = {}
     for node_id in history['outputs']:
         node_output = history['outputs'][node_id]
