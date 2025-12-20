@@ -1,7 +1,8 @@
 {
   "input": {
     "use_wan21_workflow": true,
-    "image_path": "/example_image.png",
+    "image_path": "/00001.png",
+    "reference_video_path": "/video.mp4",
     "prompt": "A person walking forward gracefully",
     "negative_prompt": "static, blurry, low quality, distorted, bad anatomy, deformed",
     "width": 480,
