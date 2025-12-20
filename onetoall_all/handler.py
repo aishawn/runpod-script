@@ -2327,5 +2327,5 @@ def handler(job):
 
 
 if __name__ == "__main__":
-    print("Starting handler v2...")
+    print("Starting handler v3...")
     runpod.serverless.start({"handler": handler})
