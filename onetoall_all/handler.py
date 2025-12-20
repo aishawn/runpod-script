@@ -230,6 +230,43 @@ def get_videos(ws, prompt, is_mega_model=False):
     logger.info(f"📹 有视频输出的节点 ({len(video_output_nodes)} 个): {video_output_nodes}")
     for node_id in video_output_nodes:
         logger.info(f"   节点 {node_id}: {len(output_videos[node_id])} 个视频")
+    
+    # 诊断：检查所有 VHS_VideoCombine 节点的执行状态
+    vhs_nodes_in_prompt = [node_id for node_id in prompt.keys() if "VHS_VideoCombine" in prompt[node_id].get("class_type", "")]
+    executed_vhs_nodes = [node_id for node_id in all_output_nodes if node_id in vhs_nodes_in_prompt]
+    not_executed_vhs_nodes = [node_id for node_id in vhs_nodes_in_prompt if node_id not in all_output_nodes]
+    
+    if not_executed_vhs_nodes:
+        logger.warning(f"⚠️ 未执行的 VHS_VideoCombine 节点 ({len(not_executed_vhs_nodes)} 个): {not_executed_vhs_nodes}")
+        # 分析为什么没有执行
+        for node_id in not_executed_vhs_nodes:
+            if node_id in prompt:
+                node = prompt[node_id]
+                images_input = node.get("inputs", {}).get("images", None)
+                if images_input and isinstance(images_input, list) and len(images_input) > 0:
+                    source_node_id = str(images_input[0])
+                    source_node_class = prompt.get(source_node_id, {}).get("class_type", "unknown") if source_node_id in prompt else "unknown"
+                    if source_node_id in all_output_nodes:
+                        logger.warning(f"   节点 {node_id}: 源节点 {source_node_id} ({source_node_class}) 已执行，但节点 {node_id} 未执行（可能因为其他原因）")
+                        # 检查源节点是否有输出
+                        source_output = history['outputs'].get(source_node_id, {})
+                        source_output_keys = list(source_output.keys())
+                        logger.warning(f"      源节点 {source_node_id} 的输出字段: {source_output_keys}")
+                    else:
+                        logger.warning(f"   节点 {node_id}: 源节点 {source_node_id} ({source_node_class}) 未执行，导致节点 {node_id} 未执行")
+                        # 检查源节点的依赖链
+                        if source_node_id in prompt:
+                            source_node = prompt[source_node_id]
+                            source_images_input = source_node.get("inputs", {}).get("image", None) or source_node.get("inputs", {}).get("images", None)
+                            if source_images_input and isinstance(source_images_input, list) and len(source_images_input) > 0:
+                                upstream_node_id = str(source_images_input[0])
+                                upstream_executed = upstream_node_id in all_output_nodes
+                                logger.warning(f"      上游节点 {upstream_node_id} 执行状态: {'已执行' if upstream_executed else '未执行'}")
+                else:
+                    logger.warning(f"   节点 {node_id}: 输入连接无效或缺失")
+    
+    if executed_vhs_nodes:
+        logger.info(f"✅ 已执行的 VHS_VideoCombine 节点 ({len(executed_vhs_nodes)} 个): {executed_vhs_nodes}")
 
     # 返回输出视频和执行顺序
     return output_videos, execution_order
@@ -1390,7 +1427,9 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
                     if isinstance(images_input, list) and len(images_input) > 0:
                         source_node_id = str(images_input[0])
                         if source_node_id in prompt:
-                            logger.debug(f"节点 {node_id}: images输入连接到节点 {source_node_id} ✓")
+                            source_node = prompt[source_node_id]
+                            source_class = source_node.get("class_type", "unknown")
+                            logger.info(f"节点 {node_id}: images输入连接到节点 {source_node_id} ({source_class}) ✓")
                         else:
                             logger.warning(f"节点 {node_id}: images输入连接到不存在的节点 {source_node_id} ✗")
                     else:
