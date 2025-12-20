@@ -1,2 +1,2 @@
-docker build -t  aishawn/onetoall:v1.2 .
-docker push aishawn/onetoall:v1.2
+docker build -t  aishawn/onetoall:v1.3 .
+docker push aishawn/onetoall:v1.3

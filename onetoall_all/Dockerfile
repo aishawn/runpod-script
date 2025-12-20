@@ -1,6 +1,6 @@
 # Use specific version of nvidia cuda image
 # FROM wlsdml1114/my-comfy-models:v1 as model_provider
-FROM wlsdml1114/multitalk-base:1.7 as runtime
+FROM runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404 as runtime
 
 # 先固定 NumPy 版本（避免 onnxruntime-gpu 兼容性问题）
 # onnxruntime-gpu 需要 NumPy < 2.0

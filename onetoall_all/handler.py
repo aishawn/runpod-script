@@ -1000,6 +1000,42 @@ def fill_missing_inputs_from_widgets(node_id, node):
             node["inputs"]["tile_stride_y"] = 0
         if "enable_vae_tiling" not in node["inputs"]:
             node["inputs"]["enable_vae_tiling"] = False
+        
+        # 修复 tile 验证：tile 必须大于 tile_stride（如果 tile > 0）
+        tile_x = node["inputs"].get("tile_x", 0)
+        tile_y = node["inputs"].get("tile_y", 0)
+        tile_stride_x = node["inputs"].get("tile_stride_x", 0)
+        tile_stride_y = node["inputs"].get("tile_stride_y", 0)
+        
+        if tile_x > 0 and tile_stride_x >= tile_x:
+            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
+            node["inputs"]["tile_stride_x"] = max(0, tile_x - 1)
+            logger.warning(f"节点 {node_id} (WanVideoDecode): 修正 tile_stride_x ({tile_stride_x}) 必须小于 tile_x ({tile_x})")
+        if tile_y > 0 and tile_stride_y >= tile_y:
+            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
+            node["inputs"]["tile_stride_y"] = max(0, tile_y - 1)
+            logger.warning(f"节点 {node_id} (WanVideoDecode): 修正 tile_stride_y ({tile_stride_y}) 必须小于 tile_y ({tile_y})")
+        
+        # 从 widgets_values 中提取缺失的必需输入
+        if "widgets_values" in node and isinstance(node["widgets_values"], list):
+            widgets = node["widgets_values"]
+            # widgets_values 格式可能包含: [enable_vae_tiling, tile_x, tile_y, tile_stride_x, tile_stride_y, ...]
+            # 某些版本的 WanVideoDecode 可能需要额外的参数
+            # 检查是否有更多参数（如 force_offload, riflex_freq_index, shift）
+            if len(widgets) >= 6 and "force_offload" not in node["inputs"]:
+                node["inputs"]["force_offload"] = widgets[5] if isinstance(widgets[5], bool) else False
+            if len(widgets) >= 7 and "riflex_freq_index" not in node["inputs"]:
+                node["inputs"]["riflex_freq_index"] = widgets[6] if isinstance(widgets[6], (int, float)) else 0
+            if len(widgets) >= 8 and "shift" not in node["inputs"]:
+                node["inputs"]["shift"] = widgets[7] if isinstance(widgets[7], (int, float)) else 0.0
+        
+        # 如果仍然缺少必需输入，设置默认值
+        if "force_offload" not in node["inputs"]:
+            node["inputs"]["force_offload"] = False
+        if "riflex_freq_index" not in node["inputs"]:
+            node["inputs"]["riflex_freq_index"] = 0
+        if "shift" not in node["inputs"]:
+            node["inputs"]["shift"] = 0.0
     elif "WanVideoEncode" in class_type:
         # 默认值
         if "tile_x" not in node["inputs"]:
@@ -1012,6 +1048,48 @@ def fill_missing_inputs_from_widgets(node_id, node):
             node["inputs"]["tile_stride_y"] = 0
         if "enable_vae_tiling" not in node["inputs"]:
             node["inputs"]["enable_vae_tiling"] = False
+        
+        # 修复 tile 验证：tile 必须大于 tile_stride（如果 tile > 0）
+        tile_x = node["inputs"].get("tile_x", 0)
+        tile_y = node["inputs"].get("tile_y", 0)
+        tile_stride_x = node["inputs"].get("tile_stride_x", 0)
+        tile_stride_y = node["inputs"].get("tile_stride_y", 0)
+        
+        if tile_x > 0 and tile_stride_x >= tile_x:
+            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
+            node["inputs"]["tile_stride_x"] = max(0, tile_x - 1)
+            logger.warning(f"节点 {node_id} (WanVideoEncode): 修正 tile_stride_x ({tile_stride_x}) 必须小于 tile_x ({tile_x})")
+        if tile_y > 0 and tile_stride_y >= tile_y:
+            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
+            node["inputs"]["tile_stride_y"] = max(0, tile_y - 1)
+            logger.warning(f"节点 {node_id} (WanVideoEncode): 修正 tile_stride_y ({tile_stride_y}) 必须小于 tile_y ({tile_y})")
+    elif "WanVideoSampler" in class_type:
+        # widgets: [steps, seed, cfg, ...]
+        # 某些版本的 WanVideoSampler 可能需要额外的参数
+        if len(widgets) >= 1 and "steps" not in node["inputs"]:
+            node["inputs"]["steps"] = widgets[0]
+        if len(widgets) >= 2 and "seed" not in node["inputs"]:
+            node["inputs"]["seed"] = widgets[1]
+        if len(widgets) >= 3 and "cfg" not in node["inputs"]:
+            node["inputs"]["cfg"] = widgets[2]
+        # 检查是否有更多参数（如 shift, riflex_freq_index, force_offload）
+        if len(widgets) >= 4 and "shift" not in node["inputs"]:
+            shift_value = widgets[3] if isinstance(widgets[3], (int, float)) else 0.0
+            if shift_value < 0:
+                shift_value = 0.0
+            node["inputs"]["shift"] = shift_value
+        if len(widgets) >= 5 and "riflex_freq_index" not in node["inputs"]:
+            node["inputs"]["riflex_freq_index"] = widgets[4] if isinstance(widgets[4], (int, float)) else 0
+        if len(widgets) >= 6 and "force_offload" not in node["inputs"]:
+            node["inputs"]["force_offload"] = widgets[5] if isinstance(widgets[5], bool) else False
+        
+        # 如果仍然缺少必需输入，设置默认值
+        if "shift" not in node["inputs"]:
+            node["inputs"]["shift"] = 0.0
+        if "riflex_freq_index" not in node["inputs"]:
+            node["inputs"]["riflex_freq_index"] = 0
+        if "force_offload" not in node["inputs"]:
+            node["inputs"]["force_offload"] = False
     elif "GetImageSizeAndCount" in class_type:
         # 这个节点需要 image 输入，但如果没有，可以跳过（不会影响执行）
         pass
@@ -1504,6 +1582,69 @@ def handler(job):
                                     logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 没有输出定义")
                             else:
                                 logger.warning(f"节点 {node_id} (VHS_VideoCombine): 无法在原始工作流中找到节点 {source_node_id}")
+        
+        # WanVideoDecode/WanVideoEncode: 验证并修正 tile 参数（在修正值类型错误部分之后再次验证）
+        if "WanVideoDecode" in class_type or "WanVideoEncode" in class_type:
+            tile_x = node["inputs"].get("tile_x", 0)
+            tile_y = node["inputs"].get("tile_y", 0)
+            tile_stride_x = node["inputs"].get("tile_stride_x", 0)
+            tile_stride_y = node["inputs"].get("tile_stride_y", 0)
+            
+            # 再次验证 tile 参数（确保 tile > tile_stride）
+            if tile_x > 0 and tile_stride_x >= tile_x:
+                node["inputs"]["tile_stride_x"] = max(0, tile_x - 1)
+                logger.warning(f"节点 {node_id}: 修正 tile_stride_x 必须小于 tile_x")
+            if tile_y > 0 and tile_stride_y >= tile_y:
+                node["inputs"]["tile_stride_y"] = max(0, tile_y - 1)
+                logger.warning(f"节点 {node_id}: 修正 tile_stride_y 必须小于 tile_y")
+        
+        # WanVideoSampler: 确保所有必需输入都已设置
+        if "WanVideoSampler" in class_type:
+            if "shift" not in node["inputs"]:
+                node["inputs"]["shift"] = 0.0
+            if "riflex_freq_index" not in node["inputs"]:
+                node["inputs"]["riflex_freq_index"] = 0
+            if "force_offload" not in node["inputs"]:
+                node["inputs"]["force_offload"] = False
+    
+    # 验证节点连接的类型匹配（检测 WANVIDIMAGE_EMBEDS vs IMAGE 不匹配）
+    logger.info("验证节点连接类型匹配...")
+    type_mismatch_warnings = []
+    for node_id, node in prompt.items():
+        class_type = node.get("class_type", "")
+        if "inputs" not in node:
+            continue
+        
+        # 检查可能导致类型不匹配的常见节点
+        # 如果节点期望 IMAGE 输入，但连接到输出 WANVIDIMAGE_EMBEDS 的节点，会有问题
+        for input_name, input_value in node["inputs"].items():
+            if isinstance(input_value, list) and len(input_value) >= 1:
+                source_node_id = str(input_value[0])
+                if source_node_id in prompt:
+                    source_node = prompt[source_node_id]
+                    source_class = source_node.get("class_type", "")
+                    
+                    # 检查常见的类型不匹配情况
+                    # WanVideoAddOneToAllExtendEmbeds 可能输出 WANVIDIMAGE_EMBEDS
+                    # 但某些节点期望 IMAGE
+                    if "WanVideoAddOneToAllExtendEmbeds" in source_class:
+                        # 如果目标节点期望 IMAGE 类型输入
+                        if input_name in ["images", "image"] and "VHS_VideoCombine" in class_type:
+                            # 这已经在 VHS_VideoCombine 处理中修复了
+                            pass
+                        elif input_name in ["images", "image"]:
+                            # 记录警告，但可能无法自动修复
+                            type_mismatch_warnings.append(
+                                f"节点 {node_id} ({class_type}) 的输入 {input_name} 连接到节点 {source_node_id} "
+                                f"({source_class})，可能存在类型不匹配 (WANVIDIMAGE_EMBEDS vs IMAGE)"
+                            )
+    
+    if type_mismatch_warnings:
+        logger.warning(f"发现 {len(type_mismatch_warnings)} 个潜在的类型不匹配:")
+        for warning in type_mismatch_warnings[:5]:  # 只显示前5个
+            logger.warning(f"  {warning}")
+        if len(type_mismatch_warnings) > 5:
+            logger.warning(f"  ... 还有 {len(type_mismatch_warnings) - 5} 个警告未显示")
     
     logger.info("输入填充和值修正完成")
     
