@@ -873,30 +873,31 @@ def fill_missing_inputs_from_widgets(node_id, node):
         # widgets: [lora, strength]
         if len(widgets) >= 1 and "lora" not in node["inputs"]:
             lora_path = widgets[0]
-            # 规范化路径：去除反斜杠，去除路径前缀
-            if isinstance(lora_path, str):
+            # 规范化路径：去除反斜杠，保留 WanVideo/ 前缀（如果需要）
+            if isinstance(lora_path, str) and lora_path:
                 lora_path = lora_path.replace("\\", "/")
                 # 去除 ComfyUI/models/loras/ 前缀
                 if lora_path.startswith("ComfyUI/models/loras/"):
                     lora_path = lora_path.replace("ComfyUI/models/loras/", "")
                 elif lora_path.startswith("/ComfyUI/models/loras/"):
                     lora_path = lora_path.replace("/ComfyUI/models/loras/", "")
-                # 去除 WanVideo/ 前缀（如果存在）
-                if lora_path.startswith("WanVideo/"):
-                    lora_path = lora_path.replace("WanVideo/", "")
+                # 如果路径不包含 WanVideo/ 前缀，且包含子目录（如 Lightx2v/），添加前缀
+                if "/" in lora_path and not lora_path.startswith("WanVideo/"):
+                    lora_path = "WanVideo/" + lora_path
             node["inputs"]["lora"] = lora_path
         if len(widgets) >= 2 and "strength" not in node["inputs"]:
             node["inputs"]["strength"] = widgets[1]
         # 验证并修正 lora 路径
-        if "lora" in node["inputs"] and isinstance(node["inputs"]["lora"], str):
+        if "lora" in node["inputs"] and isinstance(node["inputs"]["lora"], str) and node["inputs"]["lora"]:
             lora_path = node["inputs"]["lora"]
             lora_path = lora_path.replace("\\", "/")
             if lora_path.startswith("ComfyUI/models/loras/"):
                 lora_path = lora_path.replace("ComfyUI/models/loras/", "")
             elif lora_path.startswith("/ComfyUI/models/loras/"):
                 lora_path = lora_path.replace("/ComfyUI/models/loras/", "")
-            if lora_path.startswith("WanVideo/"):
-                lora_path = lora_path.replace("WanVideo/", "")
+            # 如果路径包含子目录但不包含 WanVideo/ 前缀，添加前缀
+            if "/" in lora_path and not lora_path.startswith("WanVideo/"):
+                lora_path = "WanVideo/" + lora_path
             node["inputs"]["lora"] = lora_path
     elif "WanVideoBlockSwap" in class_type:
         # widgets: [blocks_to_swap, offload_txt_emb, offload_img_emb]
@@ -1001,20 +1002,42 @@ def fill_missing_inputs_from_widgets(node_id, node):
         if "enable_vae_tiling" not in node["inputs"]:
             node["inputs"]["enable_vae_tiling"] = False
         
-        # 修复 tile 验证：tile 必须大于 tile_stride（如果 tile > 0）
+        # 修复 tile 验证：如果 tile 为 0，禁用 tiling；否则确保 tile > tile_stride
         tile_x = node["inputs"].get("tile_x", 0)
         tile_y = node["inputs"].get("tile_y", 0)
         tile_stride_x = node["inputs"].get("tile_stride_x", 0)
         tile_stride_y = node["inputs"].get("tile_stride_y", 0)
         
-        if tile_x > 0 and tile_stride_x >= tile_x:
-            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
-            node["inputs"]["tile_stride_x"] = max(0, tile_x - 1)
-            logger.warning(f"节点 {node_id} (WanVideoDecode): 修正 tile_stride_x ({tile_stride_x}) 必须小于 tile_x ({tile_x})")
-        if tile_y > 0 and tile_stride_y >= tile_y:
-            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
-            node["inputs"]["tile_stride_y"] = max(0, tile_y - 1)
-            logger.warning(f"节点 {node_id} (WanVideoDecode): 修正 tile_stride_y ({tile_stride_y}) 必须小于 tile_y ({tile_y})")
+        # 如果 tile 为 0，确保 tile_stride 也为 0（禁用 tiling）
+        if tile_x == 0:
+            node["inputs"]["tile_stride_x"] = 0
+        elif tile_x > 0:
+            # 如果 tile > 0，确保满足最小值要求（64）
+            if tile_x < 64:
+                node["inputs"]["tile_x"] = 64
+                tile_x = 64
+            # 确保 tile_stride 满足最小值要求（32）且小于 tile
+            if tile_stride_x < 32:
+                node["inputs"]["tile_stride_x"] = 32
+                tile_stride_x = 32
+            if tile_stride_x >= tile_x:
+                node["inputs"]["tile_stride_x"] = max(32, tile_x - 32)
+                logger.warning(f"节点 {node_id} (WanVideoDecode): 修正 tile_stride_x 必须小于 tile_x")
+        
+        if tile_y == 0:
+            node["inputs"]["tile_stride_y"] = 0
+        elif tile_y > 0:
+            # 如果 tile > 0，确保满足最小值要求（64）
+            if tile_y < 64:
+                node["inputs"]["tile_y"] = 64
+                tile_y = 64
+            # 确保 tile_stride 满足最小值要求（32）且小于 tile
+            if tile_stride_y < 32:
+                node["inputs"]["tile_stride_y"] = 32
+                tile_stride_y = 32
+            if tile_stride_y >= tile_y:
+                node["inputs"]["tile_stride_y"] = max(32, tile_y - 32)
+                logger.warning(f"节点 {node_id} (WanVideoDecode): 修正 tile_stride_y 必须小于 tile_y")
         
         # 从 widgets_values 中提取缺失的必需输入
         if "widgets_values" in node and isinstance(node["widgets_values"], list):
@@ -1049,20 +1072,42 @@ def fill_missing_inputs_from_widgets(node_id, node):
         if "enable_vae_tiling" not in node["inputs"]:
             node["inputs"]["enable_vae_tiling"] = False
         
-        # 修复 tile 验证：tile 必须大于 tile_stride（如果 tile > 0）
+        # 修复 tile 验证：如果 tile 为 0，禁用 tiling；否则确保 tile > tile_stride
         tile_x = node["inputs"].get("tile_x", 0)
         tile_y = node["inputs"].get("tile_y", 0)
         tile_stride_x = node["inputs"].get("tile_stride_x", 0)
         tile_stride_y = node["inputs"].get("tile_stride_y", 0)
         
-        if tile_x > 0 and tile_stride_x >= tile_x:
-            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
-            node["inputs"]["tile_stride_x"] = max(0, tile_x - 1)
-            logger.warning(f"节点 {node_id} (WanVideoEncode): 修正 tile_stride_x ({tile_stride_x}) 必须小于 tile_x ({tile_x})")
-        if tile_y > 0 and tile_stride_y >= tile_y:
-            # 如果 tile_stride >= tile，将 tile_stride 设置为 tile - 1 或 0
-            node["inputs"]["tile_stride_y"] = max(0, tile_y - 1)
-            logger.warning(f"节点 {node_id} (WanVideoEncode): 修正 tile_stride_y ({tile_stride_y}) 必须小于 tile_y ({tile_y})")
+        # 如果 tile 为 0，确保 tile_stride 也为 0（禁用 tiling）
+        if tile_x == 0:
+            node["inputs"]["tile_stride_x"] = 0
+        elif tile_x > 0:
+            # 如果 tile > 0，确保满足最小值要求（64）
+            if tile_x < 64:
+                node["inputs"]["tile_x"] = 64
+                tile_x = 64
+            # 确保 tile_stride 满足最小值要求（32）且小于 tile
+            if tile_stride_x < 32:
+                node["inputs"]["tile_stride_x"] = 32
+                tile_stride_x = 32
+            if tile_stride_x >= tile_x:
+                node["inputs"]["tile_stride_x"] = max(32, tile_x - 32)
+                logger.warning(f"节点 {node_id} (WanVideoEncode): 修正 tile_stride_x 必须小于 tile_x")
+        
+        if tile_y == 0:
+            node["inputs"]["tile_stride_y"] = 0
+        elif tile_y > 0:
+            # 如果 tile > 0，确保满足最小值要求（64）
+            if tile_y < 64:
+                node["inputs"]["tile_y"] = 64
+                tile_y = 64
+            # 确保 tile_stride 满足最小值要求（32）且小于 tile
+            if tile_stride_y < 32:
+                node["inputs"]["tile_stride_y"] = 32
+                tile_stride_y = 32
+            if tile_stride_y >= tile_y:
+                node["inputs"]["tile_stride_y"] = max(32, tile_y - 32)
+                logger.warning(f"节点 {node_id} (WanVideoEncode): 修正 tile_stride_y 必须小于 tile_y")
     elif "WanVideoSampler" in class_type:
         # widgets: [steps, seed, cfg, ...]
         # 某些版本的 WanVideoSampler 可能需要额外的参数
@@ -1450,12 +1495,18 @@ def handler(job):
         if "inputs" not in node:
             continue
         
-        # LoadWanVideoT5TextEncoder: 修正 offload_device 设置
+        # LoadWanVideoT5TextEncoder: 修正 offload_device 设置并填充缺失的必需输入
         if "LoadWanVideoT5TextEncoder" in class_type:
-            # 从 widgets_values 中提取 offload_device 并设置到 inputs
+            # 从 widgets_values 中提取所有必需参数并设置到 inputs
             if "widgets_values" in node and isinstance(node["widgets_values"], list):
                 widgets = node["widgets_values"]
-                # widgets_values 格式: [model_name, dtype, offload_device, offload_mode]
+                # widgets_values 格式: [model_name, precision/dtype, offload_device, offload_mode]
+                if len(widgets) >= 1 and "model_name" not in node["inputs"]:
+                    node["inputs"]["model_name"] = widgets[0]
+                if len(widgets) >= 2 and "precision" not in node["inputs"]:
+                    # precision 可能是 dtype 的别名
+                    precision_value = widgets[1]
+                    node["inputs"]["precision"] = precision_value
                 if len(widgets) >= 3:
                     offload_dev = widgets[2]
                     # 如果 offload_device 设置为 "offload_device" 可能导致 CUDA 错误，改为 "main_device"
@@ -1469,17 +1520,43 @@ def handler(job):
                     node["inputs"]["offload_device"] = offload_dev
                 if len(widgets) >= 4 and "offload_mode" not in node["inputs"]:
                     node["inputs"]["offload_mode"] = widgets[3] if len(widgets) > 3 else "disabled"
+            
+            # 确保所有必需输入都存在
+            if "model_name" not in node["inputs"]:
+                logger.warning(f"节点 {node_id} (LoadWanVideoT5TextEncoder): 缺少 model_name，尝试使用默认值")
+                # 尝试查找可用的 T5 模型
+                try:
+                    url = f"http://{server_address}:8188/object_info"
+                    with urllib.request.urlopen(url, timeout=5) as response:
+                        object_info = json.loads(response.read())
+                        if "LoadWanVideoT5TextEncoder" in object_info:
+                            t5_info = object_info["LoadWanVideoT5TextEncoder"]
+                            t5_models = (t5_info.get("input", {}).get("required", {}).get("model_name") or [])
+                            if isinstance(t5_models, list) and t5_models:
+                                if isinstance(t5_models[0], list):
+                                    t5_models = t5_models[0]
+                                if t5_models:
+                                    node["inputs"]["model_name"] = t5_models[0]
+                                    logger.info(f"节点 {node_id}: 使用默认 T5 模型 {t5_models[0]}")
+                except Exception as e:
+                    logger.warning(f"无法获取 T5 模型列表: {e}")
+            
+            if "precision" not in node["inputs"]:
+                node["inputs"]["precision"] = "float16"  # 默认值
         
-        # WanVideoModelLoader: 修正 quantization 和 load_device
+        # WanVideoModelLoader: 修正 quantization、base_precision 和 load_device
         if "WanVideoModelLoader" in class_type:
-            if "quantization" in node["inputs"]:
-                quant = node["inputs"]["quantization"]
-                if quant not in ["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e4m3fn_scaled", "fp8_e4m3fn_scaled_fast", "fp8_e5m2", "fp8_e5m2_fast", "fp8_e5m2_scaled", "fp8_e5m2_scaled_fast"]:
-                    node["inputs"]["quantization"] = "disabled"
-            # 处理 load_device：从 widgets_values 或 inputs 中获取
+            # 从 widgets_values 填充缺失的必需输入
             if "widgets_values" in node and isinstance(node["widgets_values"], list):
                 widgets = node["widgets_values"]
-                # widgets_values 格式: [model_name, dtype, quantization, load_device, attention_type, compile_mode]
+                # widgets_values 格式: [model_name, dtype/base_precision, quantization, load_device, attention_type, compile_mode]
+                if len(widgets) >= 2 and "base_precision" not in node["inputs"]:
+                    node["inputs"]["base_precision"] = widgets[1]
+                if len(widgets) >= 3:
+                    quant = widgets[2]
+                    if quant not in ["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e4m3fn_scaled", "fp8_e4m3fn_scaled_fast", "fp8_e5m2", "fp8_e5m2_fast", "fp8_e5m2_scaled", "fp8_e5m2_scaled_fast"]:
+                        quant = "disabled"
+                    node["inputs"]["quantization"] = quant
                 if len(widgets) >= 4:
                     load_dev = widgets[3]
                     # 如果 load_device 设置为 "offload_device" 可能导致 CUDA 错误，改为 "main_device"
@@ -1489,16 +1566,39 @@ def handler(job):
                     if load_dev not in ["main_device", "offload_device"]:
                         load_dev = "main_device"
                     node["inputs"]["load_device"] = load_dev
-            elif "load_device" in node["inputs"]:
+            
+            # 验证并修正 quantization
+            if "quantization" in node["inputs"]:
+                quant = node["inputs"]["quantization"]
+                if quant not in ["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e4m3fn_scaled", "fp8_e4m3fn_scaled_fast", "fp8_e5m2", "fp8_e5m2_fast", "fp8_e5m2_scaled", "fp8_e5m2_scaled_fast"]:
+                    node["inputs"]["quantization"] = "disabled"
+            else:
+                # 如果没有 quantization，设置默认值
+                node["inputs"]["quantization"] = "disabled"
+            
+            # 确保 base_precision 存在
+            if "base_precision" not in node["inputs"]:
+                node["inputs"]["base_precision"] = "float16"  # 默认值
+            
+            # 处理 load_device：从 inputs 中获取（如果已设置）
+            if "load_device" in node["inputs"]:
                 load_dev = node["inputs"]["load_device"]
                 if load_dev == "offload_device":
                     load_dev = "main_device"
                     logger.warning(f"节点 {node_id}: 将 load_device 从 'offload_device' 改为 'main_device' 以避免 CUDA 错误")
                 if load_dev not in ["main_device", "offload_device"]:
                     node["inputs"]["load_device"] = "main_device"
+            else:
+                node["inputs"]["load_device"] = "main_device"  # 默认值
         
-        # WanVideoVAELoader: 规范化 model_name 路径
+        # WanVideoVAELoader: 规范化 model_name 路径并确保存在
         if "WanVideoVAELoader" in class_type:
+            # 从 widgets_values 填充缺失的 model_name
+            if "widgets_values" in node and isinstance(node["widgets_values"], list):
+                widgets = node["widgets_values"]
+                if len(widgets) >= 1 and "model_name" not in node["inputs"]:
+                    node["inputs"]["model_name"] = widgets[0]
+            
             if "model_name" in node["inputs"]:
                 model_name = node["inputs"]["model_name"]
                 if isinstance(model_name, str):
@@ -1507,6 +1607,28 @@ def handler(job):
                     if "/" in model_name:
                         model_name = model_name.split("/")[-1]
                     node["inputs"]["model_name"] = model_name
+            elif "widgets_values" not in node or not node.get("widgets_values"):
+                # 如果没有 model_name 且没有 widgets_values，设置默认值
+                logger.warning(f"节点 {node_id} (WanVideoVAELoader): 缺少 model_name，尝试使用默认值")
+                # 尝试查找可用的 VAE 模型
+                try:
+                    url = f"http://{server_address}:8188/object_info"
+                    with urllib.request.urlopen(url, timeout=5) as response:
+                        object_info = json.loads(response.read())
+                        if "WanVideoVAELoader" in object_info:
+                            vae_info = object_info["WanVideoVAELoader"]
+                            vae_models = (vae_info.get("input", {}).get("required", {}).get("model_name") or [])
+                            if isinstance(vae_models, list) and vae_models:
+                                if isinstance(vae_models[0], list):
+                                    vae_models = vae_models[0]
+                                if vae_models:
+                                    default_vae = vae_models[0]
+                                    if isinstance(default_vae, str):
+                                        default_vae = default_vae.split("/")[-1]
+                                    node["inputs"]["model_name"] = default_vae
+                                    logger.info(f"节点 {node_id}: 使用默认 VAE 模型 {default_vae}")
+                except Exception as e:
+                    logger.warning(f"无法获取 VAE 模型列表: {e}")
         
         # OnnxDetectionModelLoader: 规范化模型路径
         if "OnnxDetectionModelLoader" in class_type:
@@ -1590,13 +1712,37 @@ def handler(job):
             tile_stride_x = node["inputs"].get("tile_stride_x", 0)
             tile_stride_y = node["inputs"].get("tile_stride_y", 0)
             
-            # 再次验证 tile 参数（确保 tile > tile_stride）
-            if tile_x > 0 and tile_stride_x >= tile_x:
-                node["inputs"]["tile_stride_x"] = max(0, tile_x - 1)
-                logger.warning(f"节点 {node_id}: 修正 tile_stride_x 必须小于 tile_x")
-            if tile_y > 0 and tile_stride_y >= tile_y:
-                node["inputs"]["tile_stride_y"] = max(0, tile_y - 1)
-                logger.warning(f"节点 {node_id}: 修正 tile_stride_y 必须小于 tile_y")
+            # 再次验证 tile 参数
+            # 如果 tile 为 0，禁用 tiling
+            if tile_x == 0:
+                node["inputs"]["tile_stride_x"] = 0
+            elif tile_x > 0:
+                # 确保满足最小值要求
+                if tile_x < 64:
+                    node["inputs"]["tile_x"] = 64
+                    tile_x = 64
+                if tile_stride_x < 32:
+                    node["inputs"]["tile_stride_x"] = 32
+                    tile_stride_x = 32
+                # 确保 tile > tile_stride
+                if tile_stride_x >= tile_x:
+                    node["inputs"]["tile_stride_x"] = max(32, tile_x - 32)
+                    logger.warning(f"节点 {node_id}: 修正 tile_stride_x 必须小于 tile_x")
+            
+            if tile_y == 0:
+                node["inputs"]["tile_stride_y"] = 0
+            elif tile_y > 0:
+                # 确保满足最小值要求
+                if tile_y < 64:
+                    node["inputs"]["tile_y"] = 64
+                    tile_y = 64
+                if tile_stride_y < 32:
+                    node["inputs"]["tile_stride_y"] = 32
+                    tile_stride_y = 32
+                # 确保 tile > tile_stride
+                if tile_stride_y >= tile_y:
+                    node["inputs"]["tile_stride_y"] = max(32, tile_y - 32)
+                    logger.warning(f"节点 {node_id}: 修正 tile_stride_y 必须小于 tile_y")
         
         # WanVideoSampler: 确保所有必需输入都已设置
         if "WanVideoSampler" in class_type:
@@ -1610,13 +1756,64 @@ def handler(job):
     # 验证节点连接的类型匹配（检测 WANVIDIMAGE_EMBEDS vs IMAGE 不匹配）
     logger.info("验证节点连接类型匹配...")
     type_mismatch_warnings = []
+    type_mismatch_fixes = []
+    
+    # 首先，检查并修复所有 VHS_VideoCombine 节点的类型不匹配
+    for node_id, node in prompt.items():
+        class_type = node.get("class_type", "")
+        if "VHS_VideoCombine" not in class_type or "inputs" not in node:
+            continue
+        
+        if "images" in node["inputs"]:
+            images_input = node["inputs"]["images"]
+            if isinstance(images_input, list) and len(images_input) >= 1:
+                source_node_id = str(images_input[0])
+                if source_node_id in prompt:
+                    source_node = prompt[source_node_id]
+                    source_class = source_node.get("class_type", "")
+                    
+                    # 检查源节点是否输出 WANVIDIMAGE_EMBEDS
+                    # 需要从原始工作流数据中查找输出类型
+                    if "nodes" in workflow_data:
+                        for orig_node in workflow_data.get("nodes", []):
+                            if str(orig_node.get("id")) == source_node_id:
+                                outputs = orig_node.get("outputs", [])
+                                # 检查输出类型
+                                for idx, output in enumerate(outputs):
+                                    output_type = output.get("type", "")
+                                    output_name = output.get("name", "").lower()
+                                    # 如果当前连接的输出是 WANVIDIMAGE_EMBEDS，需要找到 IMAGE 输出
+                                    if output_type == "WANVIDIMAGE_EMBEDS" and len(images_input) > 1 and images_input[1] == idx:
+                                        # 查找 IMAGE 类型的输出
+                                        image_output_idx = None
+                                        for img_idx, img_output in enumerate(outputs):
+                                            if img_output.get("type") == "IMAGE":
+                                                image_output_idx = img_idx
+                                                break
+                                        
+                                        if image_output_idx is not None:
+                                            # 修复：使用 IMAGE 输出索引
+                                            images_input[1] = image_output_idx
+                                            type_mismatch_fixes.append(
+                                                f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入从节点 {source_node_id} "
+                                                f"的输出索引 {idx} (WANVIDIMAGE_EMBEDS) -> {image_output_idx} (IMAGE)"
+                                            )
+                                            logger.info(type_mismatch_fixes[-1])
+                                        else:
+                                            # 如果找不到 IMAGE 输出，记录警告
+                                            type_mismatch_warnings.append(
+                                                f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} "
+                                                f"({source_class}) 只输出 WANVIDIMAGE_EMBEDS，没有 IMAGE 输出"
+                                            )
+                                break
+    
+    # 检查其他可能的类型不匹配
     for node_id, node in prompt.items():
         class_type = node.get("class_type", "")
         if "inputs" not in node:
             continue
         
         # 检查可能导致类型不匹配的常见节点
-        # 如果节点期望 IMAGE 输入，但连接到输出 WANVIDIMAGE_EMBEDS 的节点，会有问题
         for input_name, input_value in node["inputs"].items():
             if isinstance(input_value, list) and len(input_value) >= 1:
                 source_node_id = str(input_value[0])
@@ -1625,19 +1822,17 @@ def handler(job):
                     source_class = source_node.get("class_type", "")
                     
                     # 检查常见的类型不匹配情况
-                    # WanVideoAddOneToAllExtendEmbeds 可能输出 WANVIDIMAGE_EMBEDS
-                    # 但某些节点期望 IMAGE
                     if "WanVideoAddOneToAllExtendEmbeds" in source_class:
                         # 如果目标节点期望 IMAGE 类型输入
-                        if input_name in ["images", "image"] and "VHS_VideoCombine" in class_type:
-                            # 这已经在 VHS_VideoCombine 处理中修复了
-                            pass
-                        elif input_name in ["images", "image"]:
+                        if input_name in ["images", "image"] and "VHS_VideoCombine" not in class_type:
                             # 记录警告，但可能无法自动修复
                             type_mismatch_warnings.append(
                                 f"节点 {node_id} ({class_type}) 的输入 {input_name} 连接到节点 {source_node_id} "
                                 f"({source_class})，可能存在类型不匹配 (WANVIDIMAGE_EMBEDS vs IMAGE)"
                             )
+    
+    if type_mismatch_fixes:
+        logger.info(f"修复了 {len(type_mismatch_fixes)} 个类型不匹配问题")
     
     if type_mismatch_warnings:
         logger.warning(f"发现 {len(type_mismatch_warnings)} 个潜在的类型不匹配:")
@@ -1645,6 +1840,67 @@ def handler(job):
             logger.warning(f"  {warning}")
         if len(type_mismatch_warnings) > 5:
             logger.warning(f"  ... 还有 {len(type_mismatch_warnings) - 5} 个警告未显示")
+    
+    # 验证并修复缺失的节点连接（KeyError 问题）
+    logger.info("验证节点连接完整性...")
+    missing_node_errors = []
+    for node_id, node in prompt.items():
+        class_type = node.get("class_type", "")
+        if "inputs" not in node:
+            continue
+        
+        for input_name, input_value in node["inputs"].items():
+            if isinstance(input_value, list) and len(input_value) >= 1:
+                source_node_id = str(input_value[0])
+                if source_node_id not in prompt:
+                    missing_node_errors.append(
+                        f"节点 {node_id} ({class_type}) 的输入 {input_name} 引用了不存在的节点 {source_node_id}"
+                    )
+                    # 尝试从原始工作流中查找该节点
+                    if "nodes" in workflow_data:
+                        found_alternative = False
+                        for orig_node in workflow_data.get("nodes", []):
+                            orig_node_id = str(orig_node.get("id"))
+                            # 检查是否是 SetNode/GetNode 引用的节点
+                            if orig_node.get("type") == "SetNode":
+                                widgets = orig_node.get("widgets_values", [])
+                                if widgets and isinstance(widgets, list) and widgets[0] == source_node_id:
+                                    # 这是一个 SetNode 名称，需要找到对应的实际节点
+                                    # 这已经在 convert_nodes_to_prompt_format 中处理了
+                                    found_alternative = True
+                                    break
+                        
+                        if not found_alternative:
+                            # 如果找不到替代节点，移除这个连接（可能导致错误，但至少不会导致 KeyError）
+                            logger.warning(f"节点 {node_id}: 移除指向不存在节点 {source_node_id} 的连接 {input_name}")
+                            # 不直接删除，而是设置为 None 或空值（根据节点类型）
+                            if input_name in ["image", "images"]:
+                                # 对于图像输入，可能需要特殊处理
+                                pass
+                            else:
+                                # 对于其他输入，可以尝试移除
+                                del node["inputs"][input_name]
+    
+    if missing_node_errors:
+        logger.warning(f"发现 {len(missing_node_errors)} 个缺失节点连接:")
+        for error in missing_node_errors[:5]:
+            logger.warning(f"  {error}")
+        if len(missing_node_errors) > 5:
+            logger.warning(f"  ... 还有 {len(missing_node_errors) - 5} 个错误未显示")
+    
+    # 确保 GetImageSizeAndCount 节点有 image 输入
+    for node_id, node in prompt.items():
+        if "GetImageSizeAndCount" in node.get("class_type", ""):
+            if "inputs" not in node:
+                node["inputs"] = {}
+            if "image" not in node["inputs"]:
+                # 尝试查找 LoadImage 节点
+                image_node_id = find_node_by_class_type(prompt, "LoadImage")
+                if image_node_id:
+                    node["inputs"]["image"] = [image_node_id, 0]
+                    logger.info(f"节点 {node_id} (GetImageSizeAndCount): 连接到图像节点 {image_node_id}")
+                else:
+                    logger.warning(f"节点 {node_id} (GetImageSizeAndCount): 缺少 image 输入且找不到 LoadImage 节点")
     
     logger.info("输入填充和值修正完成")
     
