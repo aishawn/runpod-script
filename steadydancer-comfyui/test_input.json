@@ -1,6 +1,5 @@
 {
   "input": {
-    "use_wan21_workflow": true,
     "image_path": "/00001.png",
     "reference_video_path": "/video.mp4",
     "prompt": "A person walking forward gracefully",

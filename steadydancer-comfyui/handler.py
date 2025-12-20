@@ -449,6 +449,147 @@ def convert_workflow_nodes_to_prompt(workflow_data):
     logger.info(f"已转换工作流，共 {len(prompt)} 个有效节点")
     return prompt
 
+# ==================== 自动填充缺失输入 ====================
+
+def fill_missing_inputs_from_widgets(node_id, node):
+    """从 widgets_values 填充缺失的 inputs"""
+    class_type = node.get("class_type", "")
+    if "inputs" not in node:
+        node["inputs"] = {}
+    
+    # 处理字典格式的 widgets_values（如 VHS_VideoCombine）
+    if "widgets_values" in node and isinstance(node["widgets_values"], dict):
+        widgets = node["widgets_values"]
+        for key, value in widgets.items():
+            if key not in ["videopreview"] and key not in node["inputs"]:
+                node["inputs"][key] = value
+        return
+    
+    # 处理列表格式的 widgets_values
+    if "widgets_values" not in node:
+        return
+    
+    widgets = node["widgets_values"]
+    if not isinstance(widgets, list) or len(widgets) == 0:
+        return
+    
+    # 根据节点类型填充缺失的输入（只处理 SteadyDancer 需要的节点类型）
+    if "WanVideoSamplerSettings" in class_type:
+        # widgets: [steps, shift, riflex_freq_index, seed, sampler_name, cfg, scheduler, ...]
+        if len(widgets) >= 1 and "steps" not in node["inputs"]:
+            node["inputs"]["steps"] = widgets[0]
+        if len(widgets) >= 2 and "shift" not in node["inputs"]:
+            shift_value = widgets[1] if isinstance(widgets[1], (int, float)) else 0.0
+            if shift_value < 0:
+                shift_value = 0.0
+            node["inputs"]["shift"] = shift_value
+        if len(widgets) >= 3 and "riflex_freq_index" not in node["inputs"]:
+            node["inputs"]["riflex_freq_index"] = widgets[2] if isinstance(widgets[2], (int, float)) else 0
+        if len(widgets) >= 4 and "seed" not in node["inputs"]:
+            node["inputs"]["seed"] = widgets[3]
+        if len(widgets) >= 5 and "sampler_name" not in node["inputs"]:
+            node["inputs"]["sampler_name"] = widgets[4]
+        if len(widgets) >= 6 and "cfg" not in node["inputs"]:
+            node["inputs"]["cfg"] = widgets[5]
+        if len(widgets) >= 7 and "scheduler" not in node["inputs"]:
+            node["inputs"]["scheduler"] = widgets[6]
+        if len(widgets) >= 8 and "force_offload" not in node["inputs"]:
+            node["inputs"]["force_offload"] = widgets[7] if isinstance(widgets[7], bool) else False
+    
+    elif "WanVideoAddSteadyDancerEmbeds" in class_type:
+        # widgets: [pose_strength_spatial, pose_strength_temporal, start_percent, end_percent]
+        if len(widgets) >= 1 and "pose_strength_spatial" not in node["inputs"]:
+            node["inputs"]["pose_strength_spatial"] = widgets[0]
+        if len(widgets) >= 2 and "pose_strength_temporal" not in node["inputs"]:
+            node["inputs"]["pose_strength_temporal"] = widgets[1]
+        if len(widgets) >= 3 and "start_percent" not in node["inputs"]:
+            node["inputs"]["start_percent"] = widgets[2]
+        if len(widgets) >= 4 and "end_percent" not in node["inputs"]:
+            node["inputs"]["end_percent"] = widgets[3]
+    
+    elif "WanVideoImageToVideoEncode" in class_type:
+        # widgets: [height, width, num_frames, start_latent_strength, end_latent_strength, noise_aug_strength, force_offload]
+        if len(widgets) >= 1 and "height" not in node["inputs"]:
+            node["inputs"]["height"] = widgets[0]
+        if len(widgets) >= 2 and "width" not in node["inputs"]:
+            node["inputs"]["width"] = widgets[1]
+        if len(widgets) >= 3 and "num_frames" not in node["inputs"]:
+            node["inputs"]["num_frames"] = widgets[2]
+        if len(widgets) >= 4 and "start_latent_strength" not in node["inputs"]:
+            node["inputs"]["start_latent_strength"] = widgets[3]
+        if len(widgets) >= 5 and "end_latent_strength" not in node["inputs"]:
+            node["inputs"]["end_latent_strength"] = widgets[4]
+        if len(widgets) >= 6 and "noise_aug_strength" not in node["inputs"]:
+            node["inputs"]["noise_aug_strength"] = widgets[5]
+        if len(widgets) >= 7 and "force_offload" not in node["inputs"]:
+            node["inputs"]["force_offload"] = widgets[6] if isinstance(widgets[6], bool) else False
+    
+    elif "WanVideoDecode" in class_type or "WanVideoEncode" in class_type:
+        # widgets: [enable_vae_tiling, tile_x, tile_y, tile_stride_x, tile_stride_y, ...]
+        if len(widgets) >= 1 and "enable_vae_tiling" not in node["inputs"]:
+            node["inputs"]["enable_vae_tiling"] = widgets[0] if isinstance(widgets[0], bool) else False
+        if len(widgets) >= 2 and "tile_x" not in node["inputs"]:
+            node["inputs"]["tile_x"] = widgets[1]
+        if len(widgets) >= 3 and "tile_y" not in node["inputs"]:
+            node["inputs"]["tile_y"] = widgets[2]
+        if len(widgets) >= 4 and "tile_stride_x" not in node["inputs"]:
+            node["inputs"]["tile_stride_x"] = widgets[3]
+        if len(widgets) >= 5 and "tile_stride_y" not in node["inputs"]:
+            node["inputs"]["tile_stride_y"] = widgets[4]
+    
+    elif "WanVideoLoraSelect" in class_type:
+        # widgets: [lora, strength, ...]
+        if len(widgets) >= 1 and "lora" not in node["inputs"]:
+            lora_path = widgets[0]
+            if isinstance(lora_path, str) and lora_path:
+                lora_path = lora_path.replace("\\", "/")
+                if lora_path.startswith("ComfyUI/models/loras/"):
+                    lora_path = lora_path.replace("ComfyUI/models/loras/", "")
+                elif lora_path.startswith("/ComfyUI/models/loras/"):
+                    lora_path = lora_path.replace("/ComfyUI/models/loras/", "")
+                if "/" in lora_path and not lora_path.startswith("WanVideo/"):
+                    lora_path = "WanVideo/" + lora_path
+            node["inputs"]["lora"] = lora_path
+        if len(widgets) >= 2 and "strength" not in node["inputs"]:
+            node["inputs"]["strength"] = widgets[1]
+    
+    elif "WanVideoBlockSwap" in class_type:
+        # widgets: [blocks_to_swap, offload_txt_emb, offload_img_emb, ...]
+        if len(widgets) >= 1 and "blocks_to_swap" not in node["inputs"]:
+            node["inputs"]["blocks_to_swap"] = widgets[0]
+        if len(widgets) >= 2 and "offload_txt_emb" not in node["inputs"]:
+            node["inputs"]["offload_txt_emb"] = widgets[1]
+        if len(widgets) >= 3 and "offload_img_emb" not in node["inputs"]:
+            node["inputs"]["offload_img_emb"] = widgets[2]
+    
+    elif "WanVideoContextOptions" in class_type:
+        # widgets: [context_schedule, context_frames, context_overlap, context_stride, freenoise, verbose]
+        if len(widgets) >= 1 and "context_schedule" not in node["inputs"]:
+            node["inputs"]["context_schedule"] = widgets[0]
+        if len(widgets) >= 2 and "context_frames" not in node["inputs"]:
+            node["inputs"]["context_frames"] = widgets[1]
+        if len(widgets) >= 3 and "context_overlap" not in node["inputs"]:
+            node["inputs"]["context_overlap"] = widgets[2]
+        if len(widgets) >= 4 and "context_stride" not in node["inputs"]:
+            node["inputs"]["context_stride"] = widgets[3]
+        if len(widgets) >= 5 and "freenoise" not in node["inputs"]:
+            node["inputs"]["freenoise"] = widgets[4] if isinstance(widgets[4], bool) else True
+        if len(widgets) >= 6 and "verbose" not in node["inputs"]:
+            node["inputs"]["verbose"] = widgets[5] if isinstance(widgets[5], bool) else False
+    
+    elif "WanVideoClipVisionEncode" in class_type:
+        # widgets: [strength_1, strength_2, crop, combine_embeds, force_offload, ...]
+        if len(widgets) >= 1 and "strength_1" not in node["inputs"]:
+            node["inputs"]["strength_1"] = widgets[0]
+        if len(widgets) >= 2 and "strength_2" not in node["inputs"]:
+            node["inputs"]["strength_2"] = widgets[1]
+        if len(widgets) >= 3 and "crop" not in node["inputs"]:
+            node["inputs"]["crop"] = widgets[2]
+        if len(widgets) >= 4 and "combine_embeds" not in node["inputs"]:
+            node["inputs"]["combine_embeds"] = widgets[3]
+        if len(widgets) >= 5 and "force_offload" not in node["inputs"]:
+            node["inputs"]["force_offload"] = widgets[4] if isinstance(widgets[4], bool) else True
+
 # ==================== 节点配置 ====================
 
 def configure_node(prompt, node_id, updates):
@@ -777,6 +918,78 @@ def handler(job):
         positive_prompt, negative_prompt,
         steps, seed, cfg, scheduler, sampler_name
     )
+    
+    # 自动填充缺失的必需输入（在所有配置之后）
+    logger.info("自动填充缺失的必需输入...")
+    for node_id, node in prompt.items():
+        fill_missing_inputs_from_widgets(node_id, node)
+    
+    # 修正所有节点的值类型错误
+    logger.info("修正值类型错误...")
+    for node_id, node in prompt.items():
+        class_type = node.get("class_type", "")
+        if "inputs" not in node:
+            continue
+        
+        # WanVideoModelLoader: 修正 quantization、base_precision 和 load_device
+        if "WanVideoModelLoader" in class_type:
+            # 从 widgets_values 填充缺失的必需输入
+            if "widgets_values" in node and isinstance(node["widgets_values"], list):
+                widgets = node["widgets_values"]
+                if len(widgets) >= 2 and "base_precision" not in node["inputs"]:
+                    node["inputs"]["base_precision"] = widgets[1]
+                if len(widgets) >= 3:
+                    quant = widgets[2]
+                    if quant not in ["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e4m3fn_scaled", "fp8_e4m3fn_scaled_fast", "fp8_e5m2", "fp8_e5m2_fast", "fp8_e5m2_scaled", "fp8_e5m2_scaled_fast"]:
+                        quant = "disabled"
+                    node["inputs"]["quantization"] = quant
+                if len(widgets) >= 4:
+                    load_dev = widgets[3]
+                    if load_dev == "offload_device":
+                        load_dev = "main_device"
+                        logger.warning(f"节点 {node_id}: 将 load_device 从 'offload_device' 改为 'main_device' 以避免 CUDA 错误")
+                    if load_dev not in ["main_device", "offload_device"]:
+                        load_dev = "main_device"
+                    node["inputs"]["load_device"] = load_dev
+            
+            # 验证并修正 quantization
+            if "quantization" in node["inputs"]:
+                quant = node["inputs"]["quantization"]
+                if quant not in ["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e4m3fn_scaled", "fp8_e4m3fn_scaled_fast", "fp8_e5m2", "fp8_e5m2_fast", "fp8_e5m2_scaled", "fp8_e5m2_scaled_fast"]:
+                    node["inputs"]["quantization"] = "disabled"
+            else:
+                node["inputs"]["quantization"] = "disabled"
+            
+            # 确保 base_precision 存在
+            if "base_precision" not in node["inputs"]:
+                node["inputs"]["base_precision"] = "float16"
+        
+        # WanVideoTextEncodeCached: 修正 offload_device
+        if "WanVideoTextEncodeCached" in class_type:
+            if "widgets_values" in node and isinstance(node["widgets_values"], list):
+                widgets = node["widgets_values"]
+                if len(widgets) >= 6:
+                    offload_dev = widgets[6]
+                    if offload_dev == "offload_device":
+                        offload_dev = "main_device"
+                        logger.warning(f"节点 {node_id}: 将 offload_device 从 'offload_device' 改为 'main_device'")
+                    if offload_dev not in ["main_device", "offload_device", "cpu"]:
+                        offload_dev = "main_device"
+                    node["inputs"]["offload_device"] = offload_dev
+        
+        # WanVideoDecode/WanVideoEncode: 修正 tile 参数
+        if "WanVideoDecode" in class_type or "WanVideoEncode" in class_type:
+            tile_x = node["inputs"].get("tile_x", 0)
+            tile_y = node["inputs"].get("tile_y", 0)
+            tile_stride_x = node["inputs"].get("tile_stride_x", 0)
+            tile_stride_y = node["inputs"].get("tile_stride_y", 0)
+            
+            if tile_x > 0 and tile_stride_x >= tile_x:
+                node["inputs"]["tile_stride_x"] = max(32, tile_x - 32)
+                logger.warning(f"节点 {node_id}: 修正 tile_stride_x 必须小于 tile_x")
+            if tile_y > 0 and tile_stride_y >= tile_y:
+                node["inputs"]["tile_stride_y"] = max(32, tile_y - 32)
+                logger.warning(f"节点 {node_id}: 修正 tile_stride_y 必须小于 tile_y")
     
     # 连接并执行
     wait_for_http_connection()
