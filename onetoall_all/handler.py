@@ -516,12 +516,55 @@ def convert_nodes_to_prompt_format(workflow_data, logic_node_values, getnode_cla
         # 设置class_type
         if "type" in converted_node:
             node_type = converted_node["type"]
-            if "GetNode" in str(node_type):
-                converted_node["class_type"] = getnode_class_name if "|" not in str(node_type) else node_type
+            final_class_type = None
+            
+            # 处理 UUID 类型的节点（通常是子图节点）
+            # 尝试从 workflow 的 definitions/subgraphs 中查找实际的节点类型
+            if len(str(node_type)) == 36 and str(node_type).count('-') == 4:  # UUID 格式
+                # 查找子图定义
+                subgraph_type = None
+                if "definitions" in workflow_data and "subgraphs" in workflow_data["definitions"]:
+                    for subgraph in workflow_data["definitions"]["subgraphs"]:
+                        if subgraph.get("id") == node_type:
+                            # 检查子图内部节点，查找主要的节点类型
+                            if "state" in subgraph and "nodes" in subgraph["state"]:
+                                for sub_node in subgraph["state"]["nodes"]:
+                                    sub_node_type = sub_node.get("type", "")
+                                    # 优先查找 WanVideoAddOneToAllExtendEmbeds
+                                    if "WanVideoAddOneToAllExtendEmbeds" in str(sub_node_type):
+                                        subgraph_type = "WanVideoAddOneToAllExtendEmbeds"
+                                        break
+                                    # 或者查找其他常见的扩展节点
+                                    elif "Extend" in str(sub_node_type) and subgraph_type is None:
+                                        subgraph_type = sub_node_type
+                            break
+                
+                if subgraph_type:
+                    final_class_type = subgraph_type
+                    logger.info(f"节点 {node_id}: 将子图 UUID {node_type} 替换为 {subgraph_type}")
+                else:
+                    # 如果找不到，根据节点标题推断
+                    node_title = converted_node.get("title", "").lower()
+                    if "extend" in node_title:
+                        final_class_type = "WanVideoAddOneToAllExtendEmbeds"
+                        logger.info(f"节点 {node_id}: 根据标题 '{node_title}' 推断为 WanVideoAddOneToAllExtendEmbeds")
+                    else:
+                        # 保持原样（可能会失败，但至少不会破坏结构）
+                        final_class_type = node_type
+                        logger.warning(f"节点 {node_id}: 无法解析子图 UUID {node_type}，保持原样")
+            elif "GetNode" in str(node_type):
+                final_class_type = getnode_class_name if "|" not in str(node_type) else node_type
             elif "|" in node_type:
-                converted_node["class_type"] = node_type
+                final_class_type = node_type
             else:
-                converted_node["class_type"] = node_type
+                final_class_type = node_type
+            
+            # 同时更新 type 和 class_type
+            if final_class_type:
+                converted_node["class_type"] = final_class_type
+                # 如果是 UUID 被替换，也更新 type 字段
+                if len(str(node_type)) == 36 and str(node_type).count('-') == 4 and final_class_type != node_type:
+                    converted_node["type"] = final_class_type
         
         if "inputs" not in converted_node:
             converted_node["inputs"] = {}
@@ -1329,16 +1372,52 @@ def handler(job):
         if "inputs" not in node:
             continue
         
+        # LoadWanVideoT5TextEncoder: 修正 offload_device 设置
+        if "LoadWanVideoT5TextEncoder" in class_type:
+            # 从 widgets_values 中提取 offload_device 并设置到 inputs
+            if "widgets_values" in node and isinstance(node["widgets_values"], list):
+                widgets = node["widgets_values"]
+                # widgets_values 格式: [model_name, dtype, offload_device, offload_mode]
+                if len(widgets) >= 3:
+                    offload_dev = widgets[2]
+                    # 如果 offload_device 设置为 "offload_device" 可能导致 CUDA 错误，改为 "main_device"
+                    # 这可以避免在模型前向传播时出现设备转换错误
+                    if offload_dev == "offload_device":
+                        offload_dev = "main_device"
+                        logger.warning(f"节点 {node_id}: 将 offload_device 从 'offload_device' 改为 'main_device' 以避免 CUDA 错误")
+                    # 确保 offload_device 是有效的值
+                    if offload_dev not in ["main_device", "offload_device", "cpu"]:
+                        offload_dev = "main_device"
+                    node["inputs"]["offload_device"] = offload_dev
+                if len(widgets) >= 4 and "offload_mode" not in node["inputs"]:
+                    node["inputs"]["offload_mode"] = widgets[3] if len(widgets) > 3 else "disabled"
+        
         # WanVideoModelLoader: 修正 quantization 和 load_device
         if "WanVideoModelLoader" in class_type:
             if "quantization" in node["inputs"]:
                 quant = node["inputs"]["quantization"]
                 if quant not in ["disabled", "fp8_e4m3fn", "fp8_e4m3fn_fast", "fp8_e4m3fn_scaled", "fp8_e4m3fn_scaled_fast", "fp8_e5m2", "fp8_e5m2_fast", "fp8_e5m2_scaled", "fp8_e5m2_scaled_fast"]:
                     node["inputs"]["quantization"] = "disabled"
-            if "load_device" in node["inputs"]:
+            # 处理 load_device：从 widgets_values 或 inputs 中获取
+            if "widgets_values" in node and isinstance(node["widgets_values"], list):
+                widgets = node["widgets_values"]
+                # widgets_values 格式: [model_name, dtype, quantization, load_device, attention_type, compile_mode]
+                if len(widgets) >= 4:
+                    load_dev = widgets[3]
+                    # 如果 load_device 设置为 "offload_device" 可能导致 CUDA 错误，改为 "main_device"
+                    if load_dev == "offload_device":
+                        load_dev = "main_device"
+                        logger.warning(f"节点 {node_id}: 将 load_device 从 'offload_device' 改为 'main_device' 以避免 CUDA 错误")
+                    if load_dev not in ["main_device", "offload_device"]:
+                        load_dev = "main_device"
+                    node["inputs"]["load_device"] = load_dev
+            elif "load_device" in node["inputs"]:
                 load_dev = node["inputs"]["load_device"]
+                if load_dev == "offload_device":
+                    load_dev = "main_device"
+                    logger.warning(f"节点 {node_id}: 将 load_device 从 'offload_device' 改为 'main_device' 以避免 CUDA 错误")
                 if load_dev not in ["main_device", "offload_device"]:
-                    node["inputs"]["load_device"] = "offload_device"
+                    node["inputs"]["load_device"] = "main_device"
         
         # WanVideoVAELoader: 规范化 model_name 路径
         if "WanVideoVAELoader" in class_type:
@@ -1379,30 +1458,52 @@ def handler(job):
                     if source_node_id in prompt:
                         source_node = prompt[source_node_id]
                         source_class = source_node.get("class_type", "")
-                        # 如果源节点是 WanVideoAddOneToAllExtendEmbeds，检查输出索引
-                        # 节点 297 和 311 的输出 0 应该是 extended_images (IMAGE)
-                        # 但如果实际返回的是 WANVIDIMAGE_EMBEDS，需要找到正确的输出索引
-                        if "WanVideoAddOneToAllExtendEmbeds" in source_class:
-                            # 检查源节点的输出定义
-                            outputs = source_node.get("outputs", [])
-                            if len(outputs) > 0:
-                                # 查找 extended_images 输出（应该是第一个）
-                                extended_images_idx = None
-                                for idx, output in enumerate(outputs):
-                                    if output.get("name") == "extended_images" and output.get("type") == "IMAGE":
-                                        extended_images_idx = idx
+                        source_type = source_node.get("type", "")
+                        
+                        # 处理子图节点（UUID 类型）或 WanVideoAddOneToAllExtendEmbeds
+                        is_extend_node = ("WanVideoAddOneToAllExtendEmbeds" in source_class or 
+                                         "WanVideoAddOneToAllExtendEmbeds" in str(source_type) or
+                                         "extend" in source_node.get("title", "").lower())
+                        
+                        if is_extend_node:
+                            # 检查源节点的输出定义（从原始工作流数据中获取）
+                            # 只有在 UI 格式的工作流中才需要检查（有 nodes 数组）
+                            original_node = None
+                            if "nodes" in workflow_data:
+                                for orig_node in workflow_data.get("nodes", []):
+                                    if str(orig_node.get("id")) == source_node_id:
+                                        original_node = orig_node
                                         break
-                                # 如果找到了 extended_images 输出，但当前索引不对，需要修正
-                                if extended_images_idx is not None and len(images_input) >= 2 and images_input[1] != extended_images_idx:
-                                    logger.warning(f"节点 {node_id} (VHS_VideoCombine): images 输入来自节点 {source_node_id}，输出索引 {images_input[1]} 可能不正确，应该是 {extended_images_idx}")
-                                    # 修正输出索引
-                                    images_input[1] = extended_images_idx
-                                # 如果 outputs 中只有一个输出，但类型是 WANVIDIMAGE_EMBEDS，说明转换时出错了
-                                # 这种情况下，我们需要找到正确的输出节点（可能是通过 WanVideoDecode 转换）
-                                elif len(outputs) == 1 and outputs[0].get("type") == "WANVIDIMAGE_EMBEDS":
-                                    logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 的输出类型是 WANVIDIMAGE_EMBEDS，需要先通过 WanVideoDecode 转换为 IMAGE")
-                                    # 这里我们无法自动修复，因为需要添加新的节点
-                                    # 但我们可以记录错误，让用户知道问题所在
+                            
+                            if original_node:
+                                outputs = original_node.get("outputs", [])
+                                if len(outputs) > 0:
+                                    # 查找 extended_images 输出（IMAGE 类型）
+                                    extended_images_idx = None
+                                    for idx, output in enumerate(outputs):
+                                        output_name = output.get("name", "").lower()
+                                        output_type = output.get("type", "")
+                                        if ("extended_images" in output_name or "extend" in output_name) and output_type == "IMAGE":
+                                            extended_images_idx = idx
+                                            break
+                                        # 如果没有找到名称匹配的，查找第一个 IMAGE 类型的输出
+                                        if extended_images_idx is None and output_type == "IMAGE":
+                                            extended_images_idx = idx
+                                    
+                                    # 如果找到了 IMAGE 输出，确保使用正确的索引
+                                    if extended_images_idx is not None:
+                                        if len(images_input) < 2 or images_input[1] != extended_images_idx:
+                                            logger.info(f"节点 {node_id} (VHS_VideoCombine): 修正 images 输入来自节点 {source_node_id} 的输出索引 {images_input[1] if len(images_input) > 1 else 'None'} -> {extended_images_idx}")
+                                            if len(images_input) < 2:
+                                                images_input.append(extended_images_idx)
+                                            else:
+                                                images_input[1] = extended_images_idx
+                                    else:
+                                        logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 没有找到 IMAGE 类型的输出")
+                                else:
+                                    logger.warning(f"节点 {node_id} (VHS_VideoCombine): 源节点 {source_node_id} 没有输出定义")
+                            else:
+                                logger.warning(f"节点 {node_id} (VHS_VideoCombine): 无法在原始工作流中找到节点 {source_node_id}")
     
     logger.info("输入填充和值修正完成")
     

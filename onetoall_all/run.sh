@@ -287,6 +287,7 @@ if [ -d "$WORKDIR/ComfyUI/models/onnx" ]; then
     echo "ONNX 模型符号链接创建完成"
 fi
 
+WORKDIR="/"
 # ===== LoRA 模型 =====
 # Lightx2v LoRA 模型（用于 Wan21_OneToAllAnimation 工作流）
 echo "下载 Lightx2v LoRA 模型..."

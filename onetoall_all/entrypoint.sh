@@ -4,6 +4,9 @@
 # Note: We don't use set -e here because we need to handle background processes
 # set -e
 
+# Set CUDA environment variables for better error reporting
+export CUDA_LAUNCH_BLOCKING=1
+
 # Start ComfyUI in the background
 echo "Starting ComfyUI in the background..."
 python /ComfyUI/main.py --listen --use-sage-attention &
