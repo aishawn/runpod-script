@@ -956,6 +956,33 @@ def fill_missing_inputs_from_widgets(node_id, node):
             if isinstance(shift_value, (int, float)) and shift_value < 0:
                 shift_value = 0.0
             node["inputs"]["shift"] = shift_value
+        
+        # 验证并修正 start_step 和 end_step 的关系
+        steps = node["inputs"].get("steps", 6)
+        start_step = node["inputs"].get("start_step")
+        end_step = node["inputs"].get("end_step")
+        
+        if start_step is not None and end_step is not None:
+            # 如果 end_step 为 0，通常意味着使用 steps 作为 end_step
+            if end_step == 0:
+                node["inputs"]["end_step"] = steps
+                end_step = steps
+                logger.info(f"节点 {node_id} (WanVideoScheduler): end_step 为 0，设置为 steps={steps}")
+            
+            # 确保 start_step < end_step
+            if isinstance(start_step, (int, float)) and isinstance(end_step, (int, float)):
+                if start_step >= end_step:
+                    # 如果 start_step >= end_step，交换它们或使用默认值
+                    if start_step > 0:
+                        # 如果 start_step 有效，将 end_step 设置为 steps
+                        node["inputs"]["end_step"] = steps
+                        logger.warning(f"节点 {node_id} (WanVideoScheduler): start_step ({start_step}) >= end_step ({end_step})，将 end_step 设置为 steps={steps}")
+                    else:
+                        # 如果 start_step 无效，使用默认值
+                        node["inputs"]["start_step"] = 0
+                        node["inputs"]["end_step"] = steps
+                        logger.warning(f"节点 {node_id} (WanVideoScheduler): 修正 start_step=0, end_step={steps}")
+        
         # 验证并修正 shift 值
         if "shift" in node["inputs"]:
             shift_value = node["inputs"]["shift"]
@@ -2563,6 +2590,37 @@ def handler(job):
                                 node["inputs"]["onnx_device"] = "CUDAExecutionProvider"
                                 logger.info(f"节点 {node_id}: 使用默认 onnx_device=CUDAExecutionProvider")
                         break
+        
+        # WanVideoScheduler: 验证并修正 start_step 和 end_step
+        if "WanVideoScheduler" in class_type:
+            steps = node["inputs"].get("steps", 6)
+            start_step = node["inputs"].get("start_step")
+            end_step = node["inputs"].get("end_step")
+            
+            if start_step is not None and end_step is not None:
+                # 如果 end_step 为 0，通常意味着使用 steps 作为 end_step
+                if end_step == 0:
+                    node["inputs"]["end_step"] = steps
+                    end_step = steps
+                    logger.info(f"节点 {node_id} (WanVideoScheduler): end_step 为 0，设置为 steps={steps}")
+                
+                # 确保 start_step < end_step
+                if isinstance(start_step, (int, float)) and isinstance(end_step, (int, float)):
+                    if start_step >= end_step:
+                        # 如果 start_step >= end_step，将 end_step 设置为 steps
+                        node["inputs"]["end_step"] = steps
+                        logger.warning(f"节点 {node_id} (WanVideoScheduler): start_step ({start_step}) >= end_step ({end_step})，将 end_step 设置为 steps={steps}")
+                        # 如果 start_step 仍然 >= steps，将 start_step 设置为 0
+                        if start_step >= steps:
+                            node["inputs"]["start_step"] = 0
+                            logger.warning(f"节点 {node_id} (WanVideoScheduler): start_step >= steps，将 start_step 设置为 0")
+            elif "start_step" not in node["inputs"] or "end_step" not in node["inputs"]:
+                # 如果缺少参数，设置默认值
+                if "start_step" not in node["inputs"]:
+                    node["inputs"]["start_step"] = 0
+                if "end_step" not in node["inputs"]:
+                    node["inputs"]["end_step"] = steps if "steps" in node["inputs"] else 6
+                logger.info(f"节点 {node_id} (WanVideoScheduler): 设置默认 start_step=0, end_step={node['inputs']['end_step']}")
         
         # WanVideoLoraSelect: 修复 LoRA 路径格式
         if "WanVideoLoraSelect" in class_type:
