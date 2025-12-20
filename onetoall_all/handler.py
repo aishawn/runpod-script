@@ -178,7 +178,7 @@ def get_videos(ws, prompt, is_mega_model=False):
     logger.info(f"📊 执行历史中的输出节点 ({len(all_output_nodes)} 个): {all_output_nodes}")
     
     # 检查关键节点（采样器、模型、VAE等）是否执行
-    key_nodes_to_check_execution = ["22", "27", "80", "28", "35", "38", "98", "141", "154", "180", "263", "297", "311"]
+    key_nodes_to_check_execution = ["11", "16", "22", "27", "35", "38", "80", "92", "98", "128", "131", "141", "154", "180", "263", "297", "311", "28"]
     logger.info(f"🔍 检查关键节点的执行状态:")
     for node_id in key_nodes_to_check_execution:
         if node_id in prompt:
@@ -187,13 +187,27 @@ def get_videos(ws, prompt, is_mega_model=False):
             status = "✓ 已执行" if executed else "✗ 未执行"
             logger.info(f"   节点 {node_id} ({node_class}): {status}")
             
-            # 如果未执行，检查输入连接
+            # 如果未执行，检查输入连接和必需输入
             if not executed:
                 node = prompt[node_id]
                 inputs = node.get("inputs", {})
                 logger.warning(f"      节点 {node_id} 的输入: {list(inputs.keys())}")
+                
+                # 检查是否有必需输入缺失（对于没有输入的节点，检查是否有必需参数）
+                if not inputs:
+                    logger.warning(f"      节点 {node_id} 没有输入连接（可能是基础节点，应该可以执行）")
+                    # 检查是否有必需参数缺失
+                    if "LoadWanVideoT5TextEncoder" in node_class:
+                        required_inputs = ["model_name", "precision"]
+                        missing = [inp for inp in required_inputs if inp not in inputs]
+                        if missing:
+                            logger.warning(f"      节点 {node_id} 缺少必需输入: {missing}")
+                    elif "WanVideoVAELoader" in node_class:
+                        if "model_name" not in inputs:
+                            logger.warning(f"      节点 {node_id} 缺少必需输入: model_name")
+                
                 # 检查关键输入
-                for input_key in ["model", "samples", "image_embeds", "text_embeds", "vae", "image", "images"]:
+                for input_key in ["model", "samples", "image_embeds", "text_embeds", "vae", "image", "images", "t5", "model_name", "precision"]:
                     if input_key in inputs:
                         input_value = inputs[input_key]
                         if isinstance(input_value, list) and len(input_value) > 0:
@@ -202,6 +216,10 @@ def get_videos(ws, prompt, is_mega_model=False):
                             upstream_executed = upstream_node_id in all_output_nodes
                             upstream_class = prompt.get(upstream_node_id, {}).get("class_type", "unknown") if upstream_in_prompt else "unknown"
                             logger.warning(f"        输入 {input_key} -> 节点 {upstream_node_id} ({upstream_class}, {'在prompt中' if upstream_in_prompt else '不在prompt中'}, {'已执行' if upstream_executed else '未执行'})")
+                        elif isinstance(input_value, str) and input_value:
+                            logger.info(f"        输入 {input_key} = {input_value[:50]}...")
+                        elif input_value is None or input_value == "":
+                            logger.warning(f"        输入 {input_key} = None 或空值")
         else:
             logger.warning(f"   节点 {node_id}: 不在prompt中")
     
@@ -555,12 +573,22 @@ def convert_nodes_to_prompt_format(workflow_data, logic_node_values, getnode_cla
                 source_output_index = link[2]
                 
                 source_node = all_nodes_map.get(source_node_id)
+                
+                # 处理 SetNode 输出链接：解析到 SetNode 的源节点
+                if source_node and source_node.get("type") == "SetNode":
+                    resolved_source = resolve_setnode_source(source_node_id)
+                    if resolved_source:
+                        source_node_id, source_output_index = resolved_source
+                        logger.debug(f"Link {link_id}: SetNode {source_node_id} 解析到源节点 {source_node_id}[{source_output_index}]")
+                
+                # 处理 GetNode 输入链接：解析到对应的 SetNode 源节点
                 if source_node and source_node.get("type") == "GetNode":
                     widgets = source_node.get("widgets_values", [])
                     if widgets and isinstance(widgets, list):
                         getnode_name = widgets[0]
                         if getnode_name in setnode_source_map:
                             source_node_id, source_output_index = setnode_source_map[getnode_name]
+                            logger.debug(f"Link {link_id}: GetNode {getnode_name} 解析到源节点 {source_node_id}[{source_output_index}]")
                 
                 links_map[link_id] = [source_node_id, source_output_index]
     
