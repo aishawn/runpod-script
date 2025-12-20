@@ -299,6 +299,7 @@ def get_videos(ws, prompt):
     # 检查是否有执行错误
     if node_errors:
         logger.error(f"发现 {len(node_errors)} 个节点执行错误")
+        error_details = []
         for node_id, error_data in node_errors.items():
             error_msg = error_data.get('error', 'Unknown error')
             exception_msg = error_data.get('exception_message', '')
@@ -306,6 +307,10 @@ def get_videos(ws, prompt):
             if exception_msg:
                 full_error += f"\n异常详情: {exception_msg[:300]}"
             logger.error(full_error)
+            error_details.append(full_error)
+        
+        # 如果有执行错误，即使 history 中没有 error 字段，也应该抛出异常
+        raise Exception(f"工作流执行失败，{len(node_errors)} 个节点出现错误:\n" + "\n".join(error_details))
     
     if 'error' in history:
         error_info = history['error']
@@ -844,18 +849,42 @@ def configure_steadydancer_nodes(prompt, job_input, task_id, image_path, adjuste
     
     # 节点90: OnnxDetectionModelLoader
     if "90" in prompt:
+        vitpose_model = "vitpose_h_wholebody_model.onnx"
+        yolo_model = "yolov10m.onnx"
+        onnx_device = "CUDAExecutionProvider"
+        
+        # 检查模型文件是否存在（通常在 ComfyUI/models/onnx/ 目录下）
+        vitpose_paths = [
+            f"/ComfyUI/models/onnx/{vitpose_model}",
+            f"/ComfyUI/models/onnx/vitpose/{vitpose_model}",
+            vitpose_model
+        ]
+        yolo_paths = [
+            f"/ComfyUI/models/onnx/{yolo_model}",
+            f"/ComfyUI/models/onnx/yolo/{yolo_model}",
+            yolo_model
+        ]
+        
+        vitpose_found = any(os.path.exists(p) for p in vitpose_paths)
+        yolo_found = any(os.path.exists(p) for p in yolo_paths)
+        
+        if not vitpose_found:
+            logger.warning(f"节点90: 未找到 vitpose 模型文件，尝试使用: {vitpose_model}")
+        if not yolo_found:
+            logger.warning(f"节点90: 未找到 yolo 模型文件，尝试使用: {yolo_model}")
+        
         configure_node(prompt, "90", {
             "widgets_list": {
-                "vitpose_model": (0, "vitpose_h_wholebody_model.onnx"),
-                "yolo_model": (1, "yolov10m.onnx")
+                "vitpose_model": (0, vitpose_model),
+                "yolo_model": (1, yolo_model)
             },
             "inputs": {
-                "vitpose_model": "vitpose_h_wholebody_model.onnx",
-                "yolo_model": "yolov10m.onnx",
-                "onnx_device": "CUDAExecutionProvider"
+                "vitpose_model": vitpose_model,
+                "yolo_model": yolo_model,
+                "onnx_device": onnx_device
             }
         })
-        logger.info(f"节点90 (姿态检测模型): 已配置")
+        logger.info(f"节点90 (姿态检测模型): vitpose={vitpose_model}, yolo={yolo_model}, device={onnx_device}")
     
     # 节点92: WanVideoTextEncodeCached
     if "92" in prompt:
