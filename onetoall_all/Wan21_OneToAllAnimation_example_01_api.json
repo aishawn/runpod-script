@@ -563,7 +563,7 @@
       "Node name for S&R": "WanVideoLoraSelect"
     },
     "widgets_values": [
-      "WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors",
+      "WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors",
       1,
       false,
       false

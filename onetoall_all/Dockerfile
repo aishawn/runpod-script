@@ -152,11 +152,11 @@ RUN if [ -d /ComfyUI/models/onnx ]; then \
 # Lightx2v LoRA 模型（用于 Wan21_OneToAllAnimation 工作流）
 RUN mkdir -p /ComfyUI/models/loras/WanVideo/Lightx2v && \
     hfd.sh Kijai/WanVideo_comfy \
-      --include "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors" \
+      --include "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors" \
       --tool aria2c \
       -x 8 -j 8 \
       --local-dir /tmp/hfd_lora && \
-    mv /tmp/hfd_lora/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors /ComfyUI/models/loras/WanVideo/Lightx2v/ && \
+    mv /tmp/hfd_lora/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors /ComfyUI/models/loras/WanVideo/Lightx2v/ && \
     rm -rf /tmp/hfd_lora
 
 # ===== 注意：以下模型已移除（仅用于 Wan21_OneToAllAnimation 工作流）=====
