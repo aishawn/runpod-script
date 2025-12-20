@@ -242,10 +242,14 @@ def get_history(prompt_id):
         return json.loads(response.read())
 
 def get_videos(ws, prompt):
-    """获取生成的视频"""
+    """获取生成的视频，增强错误处理"""
     prompt_id = queue_prompt(prompt)['prompt_id']
     output_videos = {}
     error_info = None
+    node_errors = {}
+    executed_nodes = set()
+    
+    logger.info(f"开始执行工作流，prompt_id: {prompt_id}")
     
     while True:
         out = ws.recv()
@@ -253,20 +257,55 @@ def get_videos(ws, prompt):
             message = json.loads(out)
             if message['type'] == 'executing':
                 data = message['data']
-                if data['node'] is None and data['prompt_id'] == prompt_id:
+                node_id = data.get('node')
+                if node_id:
+                    executed_nodes.add(node_id)
+                    logger.debug(f"节点 {node_id} 正在执行...")
+                elif data['node'] is None and data['prompt_id'] == prompt_id:
+                    logger.info("所有节点执行完成")
                     break
             elif message['type'] == 'execution_error':
                 error_data = message.get('data', {})
+                node_id = error_data.get('node_id', 'unknown')
                 error_info = error_data.get('error', 'Unknown execution error')
-                node_id = error_data.get('node_id', '')
+                exception_message = error_data.get('exception_message', '')
                 
-                if 'OutOfMemoryError' in str(error_info) or 'OOM' in str(error_info):
-                    logger.error(f"❌ GPU内存不足 (OOM) - 节点: {node_id}")
-                    logger.error("建议: 1) 减小分辨率 2) 减少帧数 3) 缩短提示词")
+                node_errors[node_id] = {
+                    'error': error_info,
+                    'type': error_data.get('type', ''),
+                    'exception_message': exception_message,
+                    'full_data': error_data
+                }
+                
+                error_str = str(error_info)
+                logger.error("=" * 60)
+                logger.error(f"❌ 执行错误 - 节点: {node_id}")
+                if 'OutOfMemoryError' in error_str or 'OOM' in error_str:
+                    logger.error(f"GPU内存不足(OOM): {error_info}")
+                    logger.error("建议: 减小分辨率、帧数或提示词长度")
                 else:
-                    logger.error(f"执行错误 - 节点: {node_id}, 错误: {error_info}")
+                    logger.error(f"错误类型: {error_data.get('type', 'unknown')}")
+                    logger.error(f"错误信息: {error_info}")
+                    if exception_message:
+                        logger.error(f"异常详情: {exception_message[:500]}...")  # 限制长度
+                    # 记录节点配置信息以便调试
+                    if node_id in prompt:
+                        node_class = prompt[node_id].get("class_type", "unknown")
+                        logger.error(f"节点类型: {node_class}")
+                        logger.error(f"节点输入: {prompt[node_id].get('inputs', {})}")
 
     history = get_history(prompt_id)[prompt_id]
+    
+    # 检查是否有执行错误
+    if node_errors:
+        logger.error(f"发现 {len(node_errors)} 个节点执行错误")
+        for node_id, error_data in node_errors.items():
+            error_msg = error_data.get('error', 'Unknown error')
+            exception_msg = error_data.get('exception_message', '')
+            full_error = f"节点 {node_id}: {error_msg}"
+            if exception_msg:
+                full_error += f"\n异常详情: {exception_msg[:300]}"
+            logger.error(full_error)
     
     if 'error' in history:
         error_info = history['error']
@@ -278,6 +317,12 @@ def get_videos(ws, prompt):
             logger.error(f"❌ GPU内存不足 (OOM): {error_info}")
             raise Exception(f"GPU内存不足: {error_info}. 请尝试减小分辨率、帧数或提示词长度。")
         else:
+            # 如果有节点错误，包含节点错误信息
+            if node_errors:
+                error_details = []
+                for node_id, err_data in node_errors.items():
+                    error_details.append(f"节点 {node_id}: {err_data.get('error', 'Unknown error')}")
+                raise Exception(f"ComfyUI执行错误: {error_info}\n节点错误详情:\n" + "\n".join(error_details))
             raise Exception(f"ComfyUI执行错误: {error_info}")
     
     if 'outputs' not in history:

@@ -1420,6 +1420,16 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
         node["inputs"]["width"] = adjusted_width
         node["inputs"]["height"] = adjusted_height
         logger.info(f"已设置姿态检测节点 {pose_node_id} 的尺寸: {adjusted_width}x{adjusted_height}")
+    
+    # 同时设置 PoseDetectionOneToAllAnimation 节点的尺寸（如果存在）
+    pose_detection_node_id = find_node_by_class_type(prompt, "PoseDetectionOneToAllAnimation")
+    if pose_detection_node_id:
+        node = prompt[pose_detection_node_id]
+        if "inputs" not in node:
+            node["inputs"] = {}
+        node["inputs"]["width"] = adjusted_width
+        node["inputs"]["height"] = adjusted_height
+        logger.info(f"已设置姿态检测节点 {pose_detection_node_id} (PoseDetectionOneToAllAnimation) 的尺寸: {adjusted_width}x{adjusted_height}")
     else:
         # 回退到硬编码的节点ID
         logger.warning("未找到姿态检测节点，使用硬编码节点ID 141")
@@ -1498,6 +1508,14 @@ def configure_wan21_workflow(prompt, job_input, image_path, positive_prompt, neg
             if "inputs" not in node:
                 node["inputs"] = {}
             node["inputs"].update({"steps": steps, "seed": seed, "cfg": cfg})
+            # 记录节点 163 的配置（用于调试尺寸不匹配问题）
+            if node_id == "163":
+                logger.info(f"节点 163 (WanVideoSampler) 配置: steps={steps}, seed={seed}, cfg={cfg}")
+                logger.info(f"节点 163 的输入: {list(node.get('inputs', {}).keys())}")
+                # 检查 image_embeds 的来源
+                if "image_embeds" in node.get("inputs", {}):
+                    image_embeds_source = node["inputs"]["image_embeds"]
+                    logger.info(f"节点 163 的 image_embeds 来源: {image_embeds_source}")
     
     # 扩展嵌入节点
     for node_id, node in prompt.items():
