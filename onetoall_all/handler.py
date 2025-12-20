@@ -101,6 +101,7 @@ def get_videos(ws, prompt, is_mega_model=False):
     node_errors = {}
     node_status = {}
     executed_nodes = set()
+    execution_order = []  # 记录节点执行顺序
     
     logger.info(f"开始执行工作流，prompt_id: {prompt_id}")
     
@@ -114,6 +115,9 @@ def get_videos(ws, prompt, is_mega_model=False):
                 if node_id:
                     node_status[node_id] = 'executing'
                     executed_nodes.add(node_id)
+                    # 记录执行顺序
+                    if node_id not in execution_order:
+                        execution_order.append(node_id)
                     logger.debug(f"节点 {node_id} 正在执行...")
                 elif data['node'] is None and data['prompt_id'] == prompt_id:
                     logger.info("所有节点执行完成")
@@ -192,7 +196,8 @@ def get_videos(ws, prompt, is_mega_model=False):
                         logger.warning(f"无法读取视频文件 {video['filename']}: {e}")
         output_videos[node_id] = videos_output
 
-    return output_videos
+    # 返回输出视频和执行顺序
+    return output_videos, execution_order
 
 
 def get_getnode_class_name():
@@ -2245,22 +2250,76 @@ def handler(job):
             time.sleep(5)
     
     try:
-        videos = get_videos(ws, prompt, is_mega_model)
+        videos, execution_order = get_videos(ws, prompt, is_mega_model)
         ws.close()
         
-        # 查找输出视频
-        for node_id in videos:
-            if videos[node_id]:
-                logger.info(f"成功生成视频，输出节点: {node_id}")
-                return {"video": videos[node_id][0]}
+        # 查找输出视频，优先选择最后执行的 VHS_VideoCombine 节点
+        video_output_nodes = [node_id for node_id in videos if videos[node_id]]
         
-        # 如果没有找到视频，提供更详细的错误信息
-        logger.error("未找到生成的视频")
-        logger.error(f"可用的输出节点: {list(videos.keys())}")
-        for node_id, video_list in videos.items():
-            logger.error(f"  节点 {node_id}: {len(video_list)} 个视频")
+        if not video_output_nodes:
+            logger.error("未找到生成的视频")
+            logger.error(f"可用的输出节点: {list(videos.keys())}")
+            for node_id, video_list in videos.items():
+                logger.error(f"  节点 {node_id}: {len(video_list)} 个视频")
+            return {"error": "未找到视频输出，请检查工作流配置和ComfyUI日志"}
         
-        return {"error": "未找到视频输出，请检查工作流配置和ComfyUI日志"}
+        # 优先选择最后执行的 VHS_VideoCombine 节点
+        # 首先检查执行顺序，选择最后执行的节点
+        selected_node_id = None
+        
+        # 确保节点ID类型一致（都转换为字符串）
+        video_output_nodes_str = [str(node_id) for node_id in video_output_nodes]
+        execution_order_str = [str(node_id) for node_id in execution_order]
+        
+        # 按执行顺序倒序查找 VHS_VideoCombine 节点
+        for node_id in reversed(execution_order_str):
+            if node_id in video_output_nodes_str:
+                # 检查是否是 VHS_VideoCombine 节点
+                if node_id in prompt:
+                    node_class = prompt[node_id].get("class_type", "")
+                    if "VHS_VideoCombine" in node_class:
+                        selected_node_id = node_id
+                        logger.info(f"选择最后执行的 VHS_VideoCombine 节点: {node_id}")
+                        break
+        
+        # 如果没有找到 VHS_VideoCombine 节点，选择最后执行的任何视频节点
+        if not selected_node_id:
+            for node_id in reversed(execution_order_str):
+                if node_id in video_output_nodes_str:
+                    selected_node_id = node_id
+                    logger.info(f"选择最后执行的视频节点: {node_id}")
+                    break
+        
+        # 如果还是没有找到，选择ID最大的节点（通常是最终输出）
+        if not selected_node_id:
+            # 尝试将节点ID转换为整数进行比较
+            def try_int_compare(node_id):
+                try:
+                    return int(str(node_id))
+                except (ValueError, TypeError):
+                    return 0
+            
+            selected_node_id = max(video_output_nodes_str, key=try_int_compare)
+            logger.info(f"选择ID最大的视频节点: {selected_node_id}")
+        
+        if selected_node_id:
+            # 确保使用正确的节点ID（可能是原始类型）
+            actual_node_id = None
+            for vid_node_id in video_output_nodes:
+                if str(vid_node_id) == str(selected_node_id):
+                    actual_node_id = vid_node_id
+                    break
+            
+            if actual_node_id and videos[actual_node_id]:
+                exec_index = execution_order_str.index(str(selected_node_id)) if str(selected_node_id) in execution_order_str else 'unknown'
+                logger.info(f"成功生成视频，输出节点: {actual_node_id} (执行顺序: {exec_index})")
+                logger.info(f"所有视频输出节点: {video_output_nodes}")
+                return {"video": videos[actual_node_id][0]}
+        
+        # 如果仍然没有找到，返回第一个可用的视频
+        selected_node_id = video_output_nodes[0]
+        logger.warning(f"使用第一个可用的视频节点: {selected_node_id}")
+        return {"video": videos[selected_node_id][0]}
     except Exception as e:
         ws.close()
         logger.error(f"视频生成失败: {e}", exc_info=True)
