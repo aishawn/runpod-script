@@ -2263,26 +2263,69 @@ def handler(job):
                 logger.error(f"  节点 {node_id}: {len(video_list)} 个视频")
             return {"error": "未找到视频输出，请检查工作流配置和ComfyUI日志"}
         
-        # 优先选择最后执行的 VHS_VideoCombine 节点
-        # 首先检查执行顺序，选择最后执行的节点
+        # 优先选择策略：
+        # 1. 优先选择 save_output=True 的 VHS_VideoCombine 节点
+        # 2. 如果没有，选择 order 最大的节点（从工作流数据中获取）
+        # 3. 如果还是没有，选择最后执行的节点
+        # 4. 最后选择 ID 最大的节点
         selected_node_id = None
         
         # 确保节点ID类型一致（都转换为字符串）
         video_output_nodes_str = [str(node_id) for node_id in video_output_nodes]
         execution_order_str = [str(node_id) for node_id in execution_order]
         
-        # 按执行顺序倒序查找 VHS_VideoCombine 节点
-        for node_id in reversed(execution_order_str):
-            if node_id in video_output_nodes_str:
-                # 检查是否是 VHS_VideoCombine 节点
-                if node_id in prompt:
-                    node_class = prompt[node_id].get("class_type", "")
-                    if "VHS_VideoCombine" in node_class:
-                        selected_node_id = node_id
-                        logger.info(f"选择最后执行的 VHS_VideoCombine 节点: {node_id}")
-                        break
+        # 从工作流数据中获取节点的 order 信息
+        node_orders = {}
+        if "nodes" in workflow_data:
+            for orig_node in workflow_data.get("nodes", []):
+                node_id = str(orig_node.get("id"))
+                node_order = orig_node.get("order", 0)
+                node_orders[node_id] = node_order
         
-        # 如果没有找到 VHS_VideoCombine 节点，选择最后执行的任何视频节点
+        # 策略1: 优先选择 save_output=True 的 VHS_VideoCombine 节点
+        save_output_nodes = []
+        for node_id_str in video_output_nodes_str:
+            if node_id_str in prompt:
+                node = prompt[node_id_str]
+                node_class = node.get("class_type", "")
+                if "VHS_VideoCombine" in node_class:
+                    # 检查 save_output 设置
+                    save_output = node.get("inputs", {}).get("save_output", False)
+                    if save_output:
+                        save_output_nodes.append(node_id_str)
+        
+        if save_output_nodes:
+            # 如果有多个 save_output=True 的节点，选择 order 最大的
+            if len(save_output_nodes) > 1 and node_orders:
+                selected_node_id = max(save_output_nodes, key=lambda nid: node_orders.get(nid, 0))
+                logger.info(f"选择 save_output=True 且 order 最大的 VHS_VideoCombine 节点: {selected_node_id}")
+            else:
+                selected_node_id = save_output_nodes[0]
+                logger.info(f"选择 save_output=True 的 VHS_VideoCombine 节点: {selected_node_id}")
+        
+        # 策略2: 如果没有 save_output=True 的节点，选择 order 最大的 VHS_VideoCombine 节点
+        if not selected_node_id:
+            vhs_nodes = []
+            for node_id_str in video_output_nodes_str:
+                if node_id_str in prompt:
+                    node_class = prompt[node_id_str].get("class_type", "")
+                    if "VHS_VideoCombine" in node_class:
+                        vhs_nodes.append(node_id_str)
+            
+            if vhs_nodes and node_orders:
+                selected_node_id = max(vhs_nodes, key=lambda nid: node_orders.get(nid, 0))
+                logger.info(f"选择 order 最大的 VHS_VideoCombine 节点: {selected_node_id} (order: {node_orders.get(selected_node_id, 'unknown')})")
+            elif vhs_nodes:
+                # 如果没有 order 信息，选择 ID 最大的
+                def try_int_compare(node_id):
+                    try:
+                        return int(str(node_id))
+                    except (ValueError, TypeError):
+                        return 0
+                selected_node_id = max(vhs_nodes, key=try_int_compare)
+                logger.info(f"选择 ID 最大的 VHS_VideoCombine 节点: {selected_node_id}")
+        
+        # 策略3: 如果没有找到 VHS_VideoCombine 节点，选择最后执行的任何视频节点
         if not selected_node_id:
             for node_id in reversed(execution_order_str):
                 if node_id in video_output_nodes_str:
@@ -2290,9 +2333,8 @@ def handler(job):
                     logger.info(f"选择最后执行的视频节点: {node_id}")
                     break
         
-        # 如果还是没有找到，选择ID最大的节点（通常是最终输出）
+        # 策略4: 如果还是没有找到，选择ID最大的节点（通常是最终输出）
         if not selected_node_id:
-            # 尝试将节点ID转换为整数进行比较
             def try_int_compare(node_id):
                 try:
                     return int(str(node_id))
